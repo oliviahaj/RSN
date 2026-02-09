@@ -1,0 +1,65 @@
+---
+title: "RSN_Data_exploration"
+author: "OLH"
+date: "2026-02-09"
+output: 
+  bookdown::html_document2:
+    code_folding: hide
+    toc: TRUE
+    toc_depth: 4
+    toc_float: TRUE
+    collapsed: TRUE
+    theme: spacelab
+    fig_caption: TRUE
+    number_sections: FALSE
+---
+# Setup
+<style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.width=5,  fig.height=3.5, fig.align="center")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot,
+)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+# Downlaod data
+```{r}
+
+# create data folders
+dir.create(file.path("2026 Data"), showWarnings = F)
+dir.create(file.path("2026 Data", 'RSN_Site'), showWarnings = F)
+dir.create(file.path("2026 Data", 'QAQC_Data'), showWarnings = F)
+
+# Identify desired files to download
+site_info_file <- "RSN_Master_Site.csv"
+qaqc_data <- "RSN_Inventory_QAQC_Final.csv"
+
+# Download data files
+# site info
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1PWk45RgTK47B-PX71QG6BazpJyAtidQ1")) %>% 
+  dplyr::filter(name == site_info_file) %>% 
+  googledrive::drive_download(file = .$id, overwrite = T,
+                              path = file.path("2026 Data", "RSN_Site", .$name))
+
+# qaqc data
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1mT036D-xu_XPbJGupVoAKH2DK982oGxx")) %>% 
+  dplyr::filter(name == qaqc_data) %>% 
+  googledrive::drive_download(file = .$id, overwrite = T,
+                              path = file.path("2026 Data", "QAQC_Data", .$name))
+
+# Read in site info and data files
+site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', site_info_file))
+
+data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data', qaqc_data))
+
+```
+
