@@ -31,6 +31,10 @@ rm(list = ls()); gc()
 
 ```
 
+# Summary of Q's
+- many of the sites in the data don't have associated data in the site_info; these mostly look like older sites (i.e., first measurement is in 89 or 90s) and seem to be LTER sites like floodplain and upland, so starting with FP or UP
+- trailing spaces in the SITE column in data; removing the trailing space
+
 # Downlaod data
 ```{r}
 
@@ -60,6 +64,32 @@ googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders
 site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', site_info_file))
 
 data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data', qaqc_data))
+
+```
+
+# Length and No of measurements
+```{r}
+data_summary <- data %>%
+  # remove any trailing spaces
+  mutate(SITE = str_trim(SITE, side = "right"))%>%
+  select(SITE, PLOT, Year) %>%
+  distinct() %>%
+  group_by(SITE) %>%
+  summarize(no_yrs = n_distinct(Year), no_plots = n_distinct(PLOT), first_year = min(Year), last_year = max(Year)) %>%
+  rename(sitename = SITE) %>%
+  left_join(site_info)
+
+data_yrs <- data_summary <- data %>%
+  # remove any trailing spaces
+  mutate(SITE = str_trim(SITE, side = "right"))%>%
+  select(SITE, PLOT, Year) %>%
+  distinct() 
+
+ggplot(data_yrs, aes(SITE, Year))+
+  geom_point()+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
 
 ```
 
