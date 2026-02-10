@@ -79,7 +79,7 @@ data_summary <- data %>%
   rename(sitename = SITE) %>%
   left_join(site_info)
 
-data_yrs <- data_summary <- data %>%
+data_yrs <- data %>%
   # remove any trailing spaces
   mutate(SITE = str_trim(SITE, side = "right"))%>%
   select(SITE, PLOT, Year) %>%
@@ -89,7 +89,6 @@ ggplot(data_yrs, aes(SITE, Year))+
   geom_point()+
   theme_minimal()+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-
 
 ```
 
