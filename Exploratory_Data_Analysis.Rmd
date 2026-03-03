@@ -79,6 +79,9 @@ data_summary <- data %>%
   rename(sitename = SITE) %>%
   left_join(site_info)
 
+missing <- data %>%
+  filter(SITE %!in% data_summary$sitename)
+unique(data$SITE)
 data_yrs <- data %>%
   # remove any trailing spaces
   mutate(SITE = str_trim(SITE, side = "right"))%>%
@@ -91,4 +94,328 @@ ggplot(data_yrs, aes(SITE, Year))+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 ```
+## Histograms of dbh
+```{r}
+data.dbh <- data %>%
+  filter(!is.na(DBH))
+ggplot(data.dbh, aes(DBH)) +
+  geom_histogram()+
+  theme_bw()+
+  facet_wrap(~SPECIES, scales="free")
+  
+salbeb <- data %>%
+  filter(SPECIES == "SALBEB")
+  
 
+```
+
+## Need to do some cleaning
+```{r}
+data.2 <- data %>%
+  # trim the site to be the right
+   mutate(SITE = str_trim(SITE, side = "right"))%>%
+  # get rid of the only salix species
+   filter(SPECIES != "SALBEB") %>%
+  # update unknowns that seem to be a capitalization issue
+  mutate(SPECIES = case_when(
+           SPECIES_raw == "popbal" ~ 'POPBAL', 
+           SPECIES_raw == "Popbal"~ 'POPBAL', 
+           SPECIES_raw == "betneo"~ 'BETNEO',
+           SPECIES_raw == "Betneo"~ 'BETNEO',
+           SPECIES_raw == "picgla"~ 'PICGLA',
+           SPECIES_raw == "Popbal      "~ 'POPBAL',
+           SPECIES_raw == "picgla "~ 'PICGLA',
+           TRUE ~ SPECIES
+         ))
+
+# check which unknowns are left
+unk <- data.2 %>%
+  filter(SPECIES == "UNK")
+unique(unk$SPECIES_raw)
+```
+
+# DBH THROUGH TIME
+- tree level
+```{r}
+str(data.2)
+# try getting rid of the NAs
+data.dbh <- data.2 %>%
+  filter(!is.na(DBH)) %>%
+  group_by(UniqueID) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(
+    lag_DBH = lag(DBH),
+    DBH_rel2 = pi * (DBH/2)^2,
+    BA = 0.00007854 * (DBH)^2,
+    DBH_diff = DBH - lag(DBH),
+    DBH_rel_diff = ((DBH_rel2 - lag(DBH_rel2))/lag(DBH_rel2))*100,
+    BA_diff = BA - lag(BA),
+    Year_diff = Year - lag(Year),
+    Annual_Growth = DBH_diff / Year_diff,
+    DBH_relativized_BA = DBH_rel_diff/Year_diff,
+    BA_growth = (BA_diff/Year_diff)  * 10000,
+    RGR = (log(DBH) - log(lag(DBH)))/Year_diff,
+    Year_before = lag(Year)
+  ) %>%
+  #filter(!is.na(Annual_Growth)) %>%
+  rename(sitename = "SITE") %>%
+  left_join(site_info, by = "sitename") %>%
+  mutate(age = ifelse(is.na(age), "mature", age))
+
+
+```
+
+## Some initial viz
+
+### PicMAR
+```{r, fig.width=12, fig.height=6, fig.retina=2}
+picmar <- data.dbh %>%
+  filter(SPECIES == "PICMAR")
+picmar.rgr <- ggplot(data = picmar, aes(Year.x, RGR, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picmar.rgr
+
+picmar.rba <- ggplot(data = subset(picmar, picmar$DBH_relativized_BA < 100), aes(Year.x, DBH_relativized_BA, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picmar.rba
+
+picmar.ba <- ggplot(data = picmar, aes(Year.x, BA_growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picmar.ba
+
+picmar.ann <- ggplot(data = picmar, aes(Year.x, Annual_Growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picmar.ann
+```
+
+### PICGLA
+
+```{r, fig.width=12, fig.height=6, fig.retina=2}
+
+picgla <- data.dbh %>%
+  filter(SPECIES == "PICGLA")
+picgla.rgr <- ggplot(data = picgla, aes(Year.x, RGR, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picgla.rgr
+
+picgla.rba <- ggplot(data = subset(picgla, picgla$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picgla.rba
+
+picgla.ba <- ggplot(data = picgla, aes(Year.x, BA_growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picgla.ba
+
+picgla.ann <- ggplot(data = picgla, aes(Year.x, Annual_Growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+picgla.ann
+
+```
+
+### POPTRE
+
+```{r, fig.width=12, fig.height=6, fig.retina=2}
+
+poptre <- data.dbh %>%
+  filter(SPECIES == "POPTRE")
+poptre.rgr <- ggplot(data = poptre, aes(Year.x, RGR, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+poptre.rgr
+
+poptre.rba <- ggplot(data = subset(poptre, poptre$DBH_relativized_BA < 6000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+poptre.rba
+
+poptre.ba <- ggplot(data = poptre, aes(Year.x, BA_growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+poptre.ba
+
+poptre.ann <- ggplot(data = poptre, aes(Year.x, Annual_Growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+poptre.ann
+
+```
+### BETNEO
+```{r, fig.width=12, fig.height=6, fig.retina=2}
+
+betneo <- data.dbh %>%
+  filter(SPECIES == "BETNEO")
+betneo.rgr <- ggplot(data = betneo, aes(Year.x, RGR, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+betneo.rgr
+
+betneo.rba <- ggplot(data = subset(betneo, betneo$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+betneo.rba
+
+betneo.ba <- ggplot(data = betneo, aes(Year.x, BA_growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+betneo.ba
+
+betneo.ann <- ggplot(data = betneo, aes(Year.x, Annual_Growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+betneo.ann
+
+```
+
+### POPBAL
+
+```{r, fig.width=12, fig.height=6, fig.retina=2}
+
+popbal <- data.dbh %>%
+  filter(SPECIES == "POPBAL")
+popbal.rgr <- ggplot(data = popbal, aes(Year.x, RGR, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+popbal.rgr
+
+popbal.rba <- ggplot(data = subset(popbal, popbal$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+popbal.rba
+
+popbal.ba <- ggplot(data = popbal, aes(Year.x, BA_growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+popbal.ba
+
+popbal.ann <- ggplot(data = popbal, aes(Year.x, Annual_Growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+popbal.ann
+
+```
+
+
+##LARLAR
+
+```{r, fig.width=12, fig.height=6, fig.retina=2}
+
+larlar <- data.dbh %>%
+  filter(SPECIES == "LARLAR")
+larlar.rgr <- ggplot(data = larlar, aes(Year.x, RGR, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+larlar.rgr
+
+larlar.rba <- ggplot(data = subset(larlar, larlar$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+larlar.rba
+
+larlar.ba <- ggplot(data = larlar, aes(Year.x, BA_growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+larlar.ba
+
+larlar.ann <- ggplot(data = larlar, aes(Year.x, Annual_Growth, color = Year_before))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age, scales="free")
+larlar.ann
+
+```
+
+
+# Plot and Site level details...?
+
+## Density 
+
+```{r}
+plot_data <- data %>%
+  # trim the site to be the right
+   mutate(SITE = str_trim(SITE, side = "right"))%>%
+  # get rid of the only salix species
+   filter(SPECIES != "SALBEB") %>%
+  # if it has no trees or has fallen - make -999 0
+  mutate(DA = ifelse(DA == -9999, 0, DA)) %>%
+  mutate(DA = ifelse(DA == -999, 0, DA)) %>%
+  group_by(Year,SITE,PLOT, SPECIES, Plot_M2) %>%
+  summarize(n=n(), num_alive = sum(DA)) %>%
+  mutate(prop_alive = (num_alive/n)*100) 
+
+ggplot(plot_data, aes(Year, prop_alive))+
+  geom_point()+
+  theme_bw() +
+  facet_wrap(~SPECIES)
+
+# make it wider to look at full plot level dynamics
+plot_wide <- plot_data %>%
+  pivot_wider(names_from = SPECIES, 
+              values_from=c("n", "num_alive", "prop_alive"), values_fill=0) %>%
+  mutate(tot_trees = n_POPBAL + n_POPTRE + n_PICGLA + n_PICEA + n_PICMAR + n_UNK + n_LARLAR + n_BETNEO, 
+         tot_alive = num_alive_POPBAL + num_alive_POPTRE + num_alive_PICGLA + num_alive_PICEA + num_alive_PICMAR + num_alive_UNK + num_alive_LARLAR + num_alive_BETNEO, 
+         prop_alive = tot_alive/tot_trees) %>%
+  rename(sitename= "SITE")%>%
+  left_join(site_info, by = c("sitename")) %>%
+  mutate(age = ifelse(is.na(age), "mature", age))
+
+ggplot(plot_wide, aes(Year.x, prop_alive))+
+  geom_point()+
+  theme_bw() + 
+  facet_wrap(~age)
+
+# Summarize the site and counts
+site_plots <- plot_wide %>%
+  ungroup()%>%
+  group_by(SITE, Year) %>%
+  summarize(no_plots = length(unique(PLOT))) %>%
+  select(-Year)%>%
+  distinct() %>%
+  mutate(binary = 1) %>%
+  group_by(SITE) %>%
+  summarize(sum= sum(binary)) %>%
+  filter(sum >1)
+
+site_plots2 <- plot_wide %>%
+  ungroup()%>%
+  group_by(SITE, Year) %>%
+  summarize(no_plots = length(unique(PLOT))) %>%
+  left_join(site_plots)
+
+ggplot(site_plots2, aes(SITE, no_plots))+
+  geom_point()+
+  theme_bw()
+  
+```
+
+## Plot level BA deets
