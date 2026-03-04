@@ -1,0 +1,68 @@
+---
+title: "RSN_Analysis_Plan"
+author: "OLH"
+date: "2026-03-04"
+output: 
+  bookdown::html_document2:
+    code_folding: hide
+    toc: TRUE
+    toc_depth: 4
+    toc_float: TRUE
+    collapsed: TRUE
+    theme: spacelab
+    fig_caption: TRUE
+    number_sections: FALSE
+---
+# Setup
+<style>h1 {font-size: 20pt; } h2 {font-size: 18pt; } h3 {font-size: 16pt; } h4 {font-size: 14pt; } h5 {font-size: 12pt; } h6 {font-size: 10pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.width=5,  fig.height=3.5, fig.align="center")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot,
+)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+
+# Data QA/QC Notes
+*	Zach is updating code to correct for a few things identified from looking at annualized growth rates after initial data processing and going through the code
+  + new growth, ID'd as dead and then comes back
+  + trees with DBH < 2.5 cm - how to address those
+*	Some minor QC in the data – to work with Mark on – i.e., trailing spaces, propagating errors with -9999 (to -9998, -9997), etc - should maybe address trailing spaces in the data with Zach
+*	Sampling effort is not necessarily clearly documented in the inventory – does a plot not have data because it wasn’t collected (time constraints, etc.) or because there weren’t trees in the plot. I think with this just need to document the expected number of plots - Marks' indicated that patterns are because the trees do not exist in the data
+*	2013-2014 – standing dead were measured at sites. These measurements should not persist, but they do have a DBH measurement with a 0 for DA. 
+
+# RSN Analysis
+
+# Data summaries
+
+## Site Summary table
+
+* Record length of each site, number of surveys, number of plots --- grouped by age
+* No. of trees and proportion of different types, average size at T1 and average age at last survey
+
+## Site Characteristics 
+
+* Across site age, moisture, productivity, 
+1.	Aggregating across site age, spread of moisture, productivity, permafrost status, trajectory, etc. 
+2.	Not all sites in the inventory have this data; some of the inventory sites are not RSN sites? Working with Mark to try to capture all of this data. 
+b.	Questions:
+i.	Are there other meta-data that would be important to capture? 
+2.	Individual tree growth
+a.	Benefits of this data over tree ring data? 
+3.	Site-level demographics
+a.	Growth
+b.	Death
+c.	Turnover
+d.	Density
+
+
+
