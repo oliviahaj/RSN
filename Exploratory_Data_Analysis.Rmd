@@ -20,8 +20,7 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FA
 
 options(repos = c(CRAN = "http://cran.rstudio.com"))
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot,
-)
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot)
 
 # Clear environment + collect garbage
 rm(list = ls()); gc()
@@ -42,10 +41,11 @@ rm(list = ls()); gc()
 dir.create(file.path("2026 Data"), showWarnings = F)
 dir.create(file.path("2026 Data", 'RSN_Site'), showWarnings = F)
 dir.create(file.path("2026 Data", 'QAQC_Data'), showWarnings = F)
+dir.create(file.path("2026 Data", 'QAQC_Data', 'Updated'), showWarnings = F)
 
 # Identify desired files to download
 site_info_file <- "RSN_Master_Site.csv"
-qaqc_data <- "RSN_Inventory_QAQC_Final.csv"
+qaqc_data <- "RSN_Inventory_QAQC_Final2.csv"
 
 # Download data files
 # site info
@@ -55,32 +55,110 @@ googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders
                               path = file.path("2026 Data", "RSN_Site", .$name))
 
 # qaqc data
-googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1mT036D-xu_XPbJGupVoAKH2DK982oGxx")) %>% 
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1VR7WRVcF3behOWDoXtuFlN9wK0M24jOb")) %>% 
   dplyr::filter(name == qaqc_data) %>% 
   googledrive::drive_download(file = .$id, overwrite = T,
-                              path = file.path("2026 Data", "QAQC_Data", .$name))
+                              path = file.path("2026 Data", "QAQC_Data", "Updated", .$name))
 
 # Read in site info and data files
 site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', site_info_file))
 
-data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data', qaqc_data))
+data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data','Updated', qaqc_data))
 
 ```
 
 # Length and No of measurements
 ```{r}
+unique(data$SITE)
 data_summary <- data %>%
-  # remove any trailing spaces
-  mutate(SITE = str_trim(SITE, side = "right"))%>%
-  select(SITE, PLOT, Year) %>%
-  distinct() %>%
+  # make a column for whether or not tree is above or below 2.5 cm
+  mutate(over2.5 = ifelse(DBH>2.5, 1, 0)) %>%
+  # make a column that indicates, dead, live, or seedling less than 2.5 cm
+  mutate(tree_status = case_when(
+    over2.5 == 1 & DA == 1 ~ as.character("Live"), 
+    over2.5 == 0 & DA ==1 ~ as.character("Seedling"),
+    DA == 0 ~ as.character("Dead"),
+    DBH_raw == -8888 ~ as.character("Missing"), 
+    DBH_raw %in% c(-9999, -7777) ~ as.character("Dead"),
+    TRUE ~ "Missing"
+  )) %>%
+  group_by(SITE, Year, tree_status) %>%
+  summarize(no_plots = n_distinct(PLOT), no_trees = n_distinct(TREE)) %>%
+  pivot_wider(names_from = tree_status, values_from = c(no_plots, no_trees), values_fill = 0) %>%
+  ungroup()%>%
   group_by(SITE) %>%
-  summarize(no_yrs = n_distinct(Year), no_plots = n_distinct(PLOT), first_year = min(Year), last_year = max(Year)) %>%
-  rename(sitename = SITE) %>%
-  left_join(site_info)
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(live_diff = no_trees_Live - lag(no_trees_Live))
 
-missing <- data %>%
-  filter(SITE %!in% data_summary$sitename)
+# write.csv(data_summary,'/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_year_tree_summary.csv', row.names = FALSE)
+
+
+# 1. Open the PDF file
+# pdf("/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/Site_Trends.pdf", width = 10, height = 7)
+
+# 2. Get a list of all sites
+plot_ready <- data_summary %>%
+  # Select only the columns needed for the graph
+  select(SITE, Year, no_trees_Live, no_trees_Dead, no_trees_Seedling) %>%
+  # Pivot so 'Live' and 'Dead' are in one column
+  pivot_longer(cols = c(no_trees_Live, no_trees_Dead, no_trees_Seedling), 
+               names_to = "Status", 
+               values_to = "Count") %>%
+  # Clean up labels: "no_trees_Live" becomes "Live"
+  mutate(Status = str_remove(Status, "no_trees_"))
+site_list <- unique(plot_ready$SITE)
+
+for (s in site_list) {
+  p <- plot_ready %>%
+    filter(SITE == s) %>%
+    ggplot(aes(x = Year, y = Count, color = Status, group = Status)) +
+    geom_line(size = 1.2) +
+    geom_point(size = 3) +
+    scale_color_manual(values = c("Live" = "#2ecc71", "Dead" = "#e74c3c", "Seedling" = "skyblue")) +
+    labs(title = paste("Tree Density Trends - Site:", s),
+         subtitle = "Comparing Live vs. Dead stems over time",
+         x = "Year", y = "Number of Trees") +
+    theme_minimal()
+  
+  print(p) # This "prints" the plot as a new page in the PDF
+}
+
+```
+
+# Create a table for the years and sites
+
+```{r}
+str(data_summary)
+site_yrs <- data %>%
+  select(SITE, Year, PLOT) %>%
+  distinct() %>%
+  group_by(SITE, Year) %>%
+  summarize(n_plot = n_distinct(PLOT)) %>%
+  arrange(Year) %>%
+  mutate(present = 1)
+
+# divide sites
+older <- site_yrs %>%
+  filter(Year < 2013)
+
+old <- ggplot(data = subset(site_yrs, site_yrs$SITE %in% older$SITE), aes(SITE, Year)) + 
+  geom_point() +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+old
+
+new <- ggplot(data = subset(site_yrs, site_yrs$SITE %!in% older$SITE), aes(SITE, Year)) + 
+  geom_point() +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+new
+
+# write.csv(site_yrs, '/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_years.csv', row.names = FALSE)
+
+```
+
+
+```{r}
 unique(data$SITE)
 data_yrs <- data %>%
   # remove any trailing spaces
@@ -93,6 +171,29 @@ ggplot(data_yrs, aes(SITE, Year))+
   theme_minimal()+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
+# how many plots in each year
+no_plots <- data %>%
+  # remove any trailing spaces
+  mutate(SITE = str_trim(SITE, side = "right"))%>%
+  select(SITE, PLOT, Year) %>%
+  distinct() %>%
+  group_by(SITE, Year) %>%
+  summarize(no_plots = n_distinct(PLOT)) %>%
+  rename(sitename = SITE) 
+
+no_plots.filter <- no_plots %>%
+  group_by(sitename) %>%
+  filter(all(no_plots %in% c(12, 30))) %>%
+  ungroup() %>%
+  select(sitename, no_plots) %>%
+  distinct()
+
+no_plots.filter.opp <- no_plots %>%
+  filter(sitename %!in% no_plots.filter$sitename) %>% 
+  select(sitename) %>%
+  distinct()
+  
+write.csv(no_plots, '/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/no_plots.csv')
 ```
 ## Histograms of dbh
 ```{r}
@@ -397,22 +498,22 @@ ggplot(plot_wide, aes(Year.x, prop_alive))+
 # Summarize the site and counts
 site_plots <- plot_wide %>%
   ungroup()%>%
-  group_by(SITE, Year) %>%
+  group_by(sitename, Year.x) %>%
   summarize(no_plots = length(unique(PLOT))) %>%
-  select(-Year)%>%
+  select(-Year.x)%>%
   distinct() %>%
   mutate(binary = 1) %>%
-  group_by(SITE) %>%
+  group_by(sitename) %>%
   summarize(sum= sum(binary)) %>%
   filter(sum >1)
 
 site_plots2 <- plot_wide %>%
   ungroup()%>%
-  group_by(SITE, Year) %>%
+  group_by(sitename, Year.x) %>%
   summarize(no_plots = length(unique(PLOT))) %>%
   left_join(site_plots)
 
-ggplot(site_plots2, aes(SITE, no_plots))+
+ggplot(site_plots2, aes(sitename, no_plots))+
   geom_point()+
   theme_bw()
   

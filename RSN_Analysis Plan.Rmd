@@ -51,18 +51,79 @@ rm(list = ls()); gc()
 
 ## Site Characteristics 
 
-* Across site age, moisture, productivity, 
-1.	Aggregating across site age, spread of moisture, productivity, permafrost status, trajectory, etc. 
-2.	Not all sites in the inventory have this data; some of the inventory sites are not RSN sites? Working with Mark to try to capture all of this data. 
-b.	Questions:
-i.	Are there other meta-data that would be important to capture? 
-2.	Individual tree growth
-a.	Benefits of this data over tree ring data? 
-3.	Site-level demographics
-a.	Growth
-b.	Death
-c.	Turnover
-d.	Density
+* Across site age, moisture, productivity, trajectory, etc.
+* Some sites are lacking this data b/c in inventory but not RSN. Will try to understand best way to get this data from Mark. 
+* Other site data that would be important to capture?
 
+# Individual
+
+* Growth over time; are trees growing faster than they did before?
+* Trends in the data over time and how that vary among species/age class/landscape position
+  + DBH Difference
+  + Relative growth rate
+  + Change in BA
+  + Relativized BA change (%)
+* It doesn't seem that this would be the best data to ask this question at the individual level? I think it's more these sorts of questions at the stand level? Is there an advantage of this type of data over tree ring data for this sort of question?
+
+# Stand level
+
+* Among age classes, landscape position, and stand structure 
+  + Growth - DBH, BA, biomass
+  + Mortality
+  + Turnover
+  + Density
+
+# Questions
+
+* DBH size (2.5 cm threshold) - for sites earlier that seem to have all seedlings measured too?
+
+
+# Read in Data 
+
+```{r}
+# create data folders
+dir.create(file.path("2026 Data"), showWarnings = F)
+dir.create(file.path("2026 Data", 'RSN_Site'), showWarnings = F)
+dir.create(file.path("2026 Data", 'QAQC_Data'), showWarnings = F)
+
+# Identify desired files to download
+site_info_file <- "RSN_Master_Site.csv"
+qaqc_data <- "RSN_Inventory_QAQC_Final.csv"
+
+# Download data files
+# site info
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1PWk45RgTK47B-PX71QG6BazpJyAtidQ1")) %>% 
+  dplyr::filter(name == site_info_file) %>% 
+  googledrive::drive_download(file = .$id, overwrite = T,
+                              path = file.path("2026 Data", "RSN_Site", .$name))
+
+# qaqc data
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1mT036D-xu_XPbJGupVoAKH2DK982oGxx")) %>% 
+  dplyr::filter(name == qaqc_data) %>% 
+  googledrive::drive_download(file = .$id, overwrite = T,
+                              path = file.path("2026 Data", "QAQC_Data", .$name))
+
+# Read in site info and data files
+site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', site_info_file))
+
+data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data', qaqc_data))
+
+```
+
+# Summary Tables
+
+## Site and tree summary
+
+```{r}
+
+```
+
+
+## Site characteristics summary
+* important to note that a few sites are missing data
+
+```{r}
+
+```
 
 
