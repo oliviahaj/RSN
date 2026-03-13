@@ -61,7 +61,7 @@ googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders
                               path = file.path("2026 Data", "QAQC_Data", "Updated", .$name))
 
 # Read in site info and data files
-site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', site_info_file))
+site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', 'site_metadata_OLH.csv'))
 
 data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data','Updated', qaqc_data))
 
@@ -135,65 +135,83 @@ site_yrs <- data %>%
   group_by(SITE, Year) %>%
   summarize(n_plot = n_distinct(PLOT)) %>%
   arrange(Year) %>%
-  mutate(present = 1)
+  mutate(present = 1) %>%
+  left_join(site_info, by = "SITE")
 
-# divide sites
-older <- site_yrs %>%
-  filter(Year < 2013)
-
-old <- ggplot(data = subset(site_yrs, site_yrs$SITE %in% older$SITE), aes(SITE, Year)) + 
+# # divide sites
+# older <- site_yrs %>%
+#   filter(Year < 2013)
+unique(site_yrs$age_class)
+mature <- ggplot(data = subset(site_yrs, site_yrs$age_class == "Mature"), aes(SITE, Year)) + 
   geom_point() +
   theme_bw()+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
-old
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+  ggtitle("Mature Stands")
+mature
 
-new <- ggplot(data = subset(site_yrs, site_yrs$SITE %!in% older$SITE), aes(SITE, Year)) + 
+inter <- ggplot(data = subset(site_yrs, site_yrs$age_class == "Intermediate"), aes(SITE, Year)) + 
   geom_point() +
   theme_bw()+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
-new
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+  ggtitle("Intermediate Stands")
+inter
 
-# write.csv(site_yrs, '/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_years.csv', row.names = FALSE)
+young <- ggplot(data = subset(site_yrs, site_yrs$age_class == "Young"), aes(SITE, Year)) + 
+  geom_point() +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+  ggtitle("Young Stands")
+young
 
+# unk <- ggplot(data = subset(site_yrs, is.na(site_yrs$age_class)), aes(SITE, Year)) + 
+#   geom_point() +
+#   theme_bw()+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+#   ggtitle("Unknown Stands")
+# unk
+
+unique(data$Year)
 ```
 
+# No plots (v1)
+- this was done on older data...
 
 ```{r}
-unique(data$SITE)
-data_yrs <- data %>%
-  # remove any trailing spaces
-  mutate(SITE = str_trim(SITE, side = "right"))%>%
-  select(SITE, PLOT, Year) %>%
-  distinct() 
-
-ggplot(data_yrs, aes(SITE, Year))+
-  geom_point()+
-  theme_minimal()+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-
-# how many plots in each year
-no_plots <- data %>%
-  # remove any trailing spaces
-  mutate(SITE = str_trim(SITE, side = "right"))%>%
-  select(SITE, PLOT, Year) %>%
-  distinct() %>%
-  group_by(SITE, Year) %>%
-  summarize(no_plots = n_distinct(PLOT)) %>%
-  rename(sitename = SITE) 
-
-no_plots.filter <- no_plots %>%
-  group_by(sitename) %>%
-  filter(all(no_plots %in% c(12, 30))) %>%
-  ungroup() %>%
-  select(sitename, no_plots) %>%
-  distinct()
-
-no_plots.filter.opp <- no_plots %>%
-  filter(sitename %!in% no_plots.filter$sitename) %>% 
-  select(sitename) %>%
-  distinct()
+# unique(data$SITE)
+# data_yrs <- data %>%
+#   # remove any trailing spaces
+#   mutate(SITE = str_trim(SITE, side = "right"))%>%
+#   select(SITE, PLOT, Year) %>%
+#   distinct() 
+# 
+# ggplot(data_yrs, aes(SITE, Year))+
+#   geom_point()+
+#   theme_minimal()+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+# 
+# # how many plots in each year
+# no_plots <- data %>%
+#   # remove any trailing spaces
+#   mutate(SITE = str_trim(SITE, side = "right"))%>%
+#   select(SITE, PLOT, Year) %>%
+#   distinct() %>%
+#   group_by(SITE, Year) %>%
+#   summarize(no_plots = n_distinct(PLOT)) %>%
+#   rename(sitename = SITE) 
+# 
+# no_plots.filter <- no_plots %>%
+#   group_by(sitename) %>%
+#   filter(all(no_plots %in% c(12, 30))) %>%
+#   ungroup() %>%
+#   select(sitename, no_plots) %>%
+#   distinct()
+# 
+# no_plots.filter.opp <- no_plots %>%
+#   filter(sitename %!in% no_plots.filter$sitename) %>% 
+#   select(sitename) %>%
+#   distinct()
   
-write.csv(no_plots, '/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/no_plots.csv')
+# write.csv(no_plots, '/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/no_plots.csv')
 ```
 ## Histograms of dbh
 ```{r}
@@ -210,29 +228,43 @@ salbeb <- data %>%
 
 ```
 
-## Need to do some cleaning
+# Plots missing site data
+- have an updated metadata file that now will have all of the sites
+
 ```{r}
+# site_missing <- data %>%
+#   rename(sitename = "SITE") %>%
+#   left_join(site_info, by = "sitename") %>%
+#   filter(is.na(age)) %>%
+#   select(sitename) %>%
+#   distinct()
+# 
+# # write.csv(site_missing,'/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_missing.csv', row.names = FALSE)
+```
+
+
+
+## Data cleaning round 2 - after the updates
+- most of initial concerns have been addressed
+```{r}
+unique(data$SPECIES)
 data.2 <- data %>%
   # trim the site to be the right
-   mutate(SITE = str_trim(SITE, side = "right"))%>%
+   # mutate(SITE = str_trim(SITE, side = "right"))%>%
   # get rid of the only salix species
-   filter(SPECIES != "SALBEB") %>%
+   filter(SPECIES != "SALBEB") 
   # update unknowns that seem to be a capitalization issue
-  mutate(SPECIES = case_when(
-           SPECIES_raw == "popbal" ~ 'POPBAL', 
-           SPECIES_raw == "Popbal"~ 'POPBAL', 
-           SPECIES_raw == "betneo"~ 'BETNEO',
-           SPECIES_raw == "Betneo"~ 'BETNEO',
-           SPECIES_raw == "picgla"~ 'PICGLA',
-           SPECIES_raw == "Popbal      "~ 'POPBAL',
-           SPECIES_raw == "picgla "~ 'PICGLA',
-           TRUE ~ SPECIES
-         ))
+  # mutate(SPECIES = case_when(
+  #          SPECIES_raw == "popbal" ~ 'POPBAL', 
+  #          SPECIES_raw == "Popbal"~ 'POPBAL', 
+  #          SPECIES_raw == "betneo"~ 'BETNEO',
+  #          SPECIES_raw == "Betneo"~ 'BETNEO',
+  #          SPECIES_raw == "picgla"~ 'PICGLA',
+  #          SPECIES_raw == "Popbal      "~ 'POPBAL',
+  #          SPECIES_raw == "picgla "~ 'PICGLA',
+  #          TRUE ~ SPECIES
+  #        ))
 
-# check which unknowns are left
-unk <- data.2 %>%
-  filter(SPECIES == "UNK")
-unique(unk$SPECIES_raw)
 ```
 
 # DBH THROUGH TIME
@@ -242,6 +274,8 @@ str(data.2)
 # try getting rid of the NAs
 data.dbh <- data.2 %>%
   filter(!is.na(DBH)) %>%
+  # can not do this too, but get rid of really small trees for consistency
+  filter(DBH> 2.4) %>%
   group_by(UniqueID) %>%
   arrange(Year, .by_group = TRUE) %>%
   mutate(
@@ -259,10 +293,7 @@ data.dbh <- data.2 %>%
     Year_before = lag(Year)
   ) %>%
   #filter(!is.na(Annual_Growth)) %>%
-  rename(sitename = "SITE") %>%
-  left_join(site_info, by = "sitename") %>%
-  mutate(age = ifelse(is.na(age), "mature", age))
-
+  left_join(site_info, by = "SITE")
 
 ```
 
@@ -272,28 +303,28 @@ data.dbh <- data.2 %>%
 ```{r, fig.width=12, fig.height=6, fig.retina=2}
 picmar <- data.dbh %>%
   filter(SPECIES == "PICMAR")
-picmar.rgr <- ggplot(data = picmar, aes(Year.x, RGR, color = Year_before))+
-  geom_point()+
+picmar.rgr <- ggplot(data = picmar, aes(Year, RGR, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picmar.rgr
 
-picmar.rba <- ggplot(data = subset(picmar, picmar$DBH_relativized_BA < 100), aes(Year.x, DBH_relativized_BA, color = Year_before))+
-  geom_point()+
+picmar.rba <- ggplot(data = subset(picmar, picmar$DBH_relativized_BA < 100), aes(Year, DBH_relativized_BA, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picmar.rba
 
-picmar.ba <- ggplot(data = picmar, aes(Year.x, BA_growth, color = Year_before))+
-  geom_point()+
+picmar.ba <- ggplot(data = picmar, aes(Year, BA_growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picmar.ba
 
-picmar.ann <- ggplot(data = picmar, aes(Year.x, Annual_Growth, color = Year_before))+
-  geom_point()+
+picmar.ann <- ggplot(data = picmar, aes(Year, Annual_Growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picmar.ann
 ```
 
@@ -303,28 +334,28 @@ picmar.ann
 
 picgla <- data.dbh %>%
   filter(SPECIES == "PICGLA")
-picgla.rgr <- ggplot(data = picgla, aes(Year.x, RGR, color = Year_before))+
-  geom_point()+
+picgla.rgr <- ggplot(data = picgla, aes(Year, RGR, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picgla.rgr
 
-picgla.rba <- ggplot(data = subset(picgla, picgla$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
-  geom_point()+
+picgla.rba <- ggplot(data = subset(picgla, picgla$DBH_relativized_BA < 1000), aes(Year, DBH_relativized_BA, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picgla.rba
 
-picgla.ba <- ggplot(data = picgla, aes(Year.x, BA_growth, color = Year_before))+
-  geom_point()+
+picgla.ba <- ggplot(data = picgla, aes(Year, BA_growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picgla.ba
 
-picgla.ann <- ggplot(data = picgla, aes(Year.x, Annual_Growth, color = Year_before))+
-  geom_point()+
+picgla.ann <- ggplot(data = picgla, aes(Year, Annual_Growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 picgla.ann
 
 ```
@@ -335,28 +366,28 @@ picgla.ann
 
 poptre <- data.dbh %>%
   filter(SPECIES == "POPTRE")
-poptre.rgr <- ggplot(data = poptre, aes(Year.x, RGR, color = Year_before))+
-  geom_point()+
+poptre.rgr <- ggplot(data = poptre, aes(Year, RGR, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 poptre.rgr
 
-poptre.rba <- ggplot(data = subset(poptre, poptre$DBH_relativized_BA < 6000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
-  geom_point()+
+poptre.rba <- ggplot(data = poptre, aes(Year, DBH_relativized_BA, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 poptre.rba
 
-poptre.ba <- ggplot(data = poptre, aes(Year.x, BA_growth, color = Year_before))+
-  geom_point()+
+poptre.ba <- ggplot(data = poptre, aes(Year, BA_growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 poptre.ba
 
-poptre.ann <- ggplot(data = poptre, aes(Year.x, Annual_Growth, color = Year_before))+
-  geom_point()+
+poptre.ann <- ggplot(data = poptre, aes(Year, Annual_Growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 poptre.ann
 
 ```
@@ -365,28 +396,28 @@ poptre.ann
 
 betneo <- data.dbh %>%
   filter(SPECIES == "BETNEO")
-betneo.rgr <- ggplot(data = betneo, aes(Year.x, RGR, color = Year_before))+
-  geom_point()+
+betneo.rgr <- ggplot(data = betneo, aes(Year, RGR, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 betneo.rgr
 
-betneo.rba <- ggplot(data = subset(betneo, betneo$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
-  geom_point()+
+betneo.rba <- ggplot(data = subset(betneo, betneo$DBH_relativized_BA < 1000), aes(Year, DBH_relativized_BA, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 betneo.rba
 
-betneo.ba <- ggplot(data = betneo, aes(Year.x, BA_growth, color = Year_before))+
-  geom_point()+
+betneo.ba <- ggplot(data = betneo, aes(Year, BA_growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 betneo.ba
 
-betneo.ann <- ggplot(data = betneo, aes(Year.x, Annual_Growth, color = Year_before))+
-  geom_point()+
+betneo.ann <- ggplot(data = betneo, aes(Year, Annual_Growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 betneo.ann
 
 ```
@@ -397,28 +428,28 @@ betneo.ann
 
 popbal <- data.dbh %>%
   filter(SPECIES == "POPBAL")
-popbal.rgr <- ggplot(data = popbal, aes(Year.x, RGR, color = Year_before))+
-  geom_point()+
+popbal.rgr <- ggplot(data = popbal, aes(Year, RGR, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 popbal.rgr
 
-popbal.rba <- ggplot(data = subset(popbal, popbal$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
-  geom_point()+
+popbal.rba <- ggplot(data = subset(popbal, popbal$DBH_relativized_BA < 1000), aes(Year, DBH_relativized_BA, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 popbal.rba
 
-popbal.ba <- ggplot(data = popbal, aes(Year.x, BA_growth, color = Year_before))+
-  geom_point()+
+popbal.ba <- ggplot(data = popbal, aes(Year, BA_growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 popbal.ba
 
-popbal.ann <- ggplot(data = popbal, aes(Year.x, Annual_Growth, color = Year_before))+
-  geom_point()+
+popbal.ann <- ggplot(data = popbal, aes(Year, Annual_Growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 popbal.ann
 
 ```
@@ -430,34 +461,369 @@ popbal.ann
 
 larlar <- data.dbh %>%
   filter(SPECIES == "LARLAR")
-larlar.rgr <- ggplot(data = larlar, aes(Year.x, RGR, color = Year_before))+
-  geom_point()+
+larlar.rgr <- ggplot(data = larlar, aes(Year, RGR, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 larlar.rgr
 
-larlar.rba <- ggplot(data = subset(larlar, larlar$DBH_relativized_BA < 1000), aes(Year.x, DBH_relativized_BA, color = Year_before))+
-  geom_point()+
+larlar.rba <- ggplot(data = subset(larlar, larlar$DBH_relativized_BA < 1000), aes(Year, DBH_relativized_BA, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 larlar.rba
 
-larlar.ba <- ggplot(data = larlar, aes(Year.x, BA_growth, color = Year_before))+
-  geom_point()+
+larlar.ba <- ggplot(data = larlar, aes(Year, BA_growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 larlar.ba
 
-larlar.ann <- ggplot(data = larlar, aes(Year.x, Annual_Growth, color = Year_before))+
-  geom_point()+
+larlar.ann <- ggplot(data = larlar, aes(Year, Annual_Growth, color = Year_before))+
+  geom_jitter()+
   theme_bw()+
-  facet_wrap(~age, scales="free")
+  facet_wrap(~age_class, scales="free_x")
 larlar.ann
 
 ```
 
+# Tree growth summary table through time
+- going to summarize on the decade, by tree species and age class
+- want a count of the number of unique trees too
+
+```{r}
+str(data.dbh)
+# function to floor decade 
+floor_decade    = function(value){ return(value - value %% 10) }
+
+individ.summary <- data.dbh %>%
+  ungroup() %>%
+  # make a decade column - floor
+  mutate(decade = floor_decade(Year)) %>%
+  filter(!is.na(DBH_diff)) %>%
+  group_by(decade, SPECIES, age_class) %>%
+  summarize(n_tree = n_distinct(UniqueID), n_site = n_distinct(SITE), 
+            mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
+            mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()), 
+            mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
+            mean_BG = mean(BA_growth), median_BG = median(BA_growth), se_BG = sd(BA_growth)/sqrt(n()),
+            mean_RBAG = mean(DBH_relativized_BA), median_RBAG = median(DBH_relativized_BA), se_RBAG = sd(DBH_relativized_BA)/sqrt(n())
+            ) %>%
+  arrange(SPECIES, decade, age_class) 
+  
+## same code but by year
+individ.summary.yr <- data.dbh %>%
+  ungroup() %>%
+  filter(!is.na(DBH_diff)) %>%
+  group_by(Year, SPECIES, age_class) %>%
+  summarize(n_tree = n_distinct(UniqueID), n_site = n_distinct(SITE), 
+            mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
+            mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()), 
+            mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
+            mean_BG = mean(BA_growth), median_BG = median(BA_growth), se_BG = sd(BA_growth)/sqrt(n()),
+            mean_RBAG = mean(DBH_relativized_BA), median_RBAG = median(DBH_relativized_BA), se_RBAG = sd(DBH_relativized_BA)/sqrt(n())
+            ) %>%
+  arrange(SPECIES, Year, age_class) 
+  
+
+
+# Filter for visuals = get rid of picea, larlar
+individ.sum.vis <- individ.summary %>%
+  # tree species wiht limited coverage
+  filter(SPECIES %!in% c("PICEA", "LARLAR")) %>%
+  # get rid of obs with only 1 site
+  filter(n_site >1) %>%
+  # requrie at least 10 trees?
+  filter(n_tree >10)
+  
+
+individ.sum.vis.yr <- individ.summary.yr %>%
+  # tree species wiht limited coverage
+  filter(SPECIES %!in% c("PICEA", "LARLAR")) %>%
+  # get rid of obs with only 1 site
+  #filter(n_site >1) %>%
+  # requrie at least 10 trees?
+  filter(n_tree >10)
+```
+
+# Visuals of individ growth over time and by age class - DECADE
+```{r}
+ggplot(individ.sum.vis, aes(decade, n_tree, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis, aes(decade, n_site, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis, aes(decade, mean_dbh, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_dbh - se_dbh, ymax = mean_dbh + se_dbh),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis, aes(decade, mean_AG, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_AG - se_AG, ymax = mean_AG + se_AG),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+# ggplot(individ.sum.vis, aes(decade, median_AG, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_AG - se_AG, ymax = median_AG + se_AG),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+ggplot(individ.sum.vis, aes(decade, mean_RGR, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_RGR - se_RGR, ymax = mean_RGR + se_RGR),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+# 
+# ggplot(individ.sum.vis, aes(decade, median_RGR, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_RGR - se_RGR, ymax = median_RGR + se_RGR),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis, aes(decade, mean_BG, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_BG - se_BG, ymax = mean_BG + se_BG),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+# ggplot(individ.sum.vis, aes(decade, median_BG, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_BG - se_BG, ymax = median_BG + se_BG),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+ggplot(individ.sum.vis, aes(decade, mean_RBAG, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_RBAG - se_RBAG, ymax = mean_RBAG + se_RBAG),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+# ggplot(individ.sum.vis, aes(decade, median_RBAG, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_RBAG - se_RBAG, ymax = median_RBAG + se_RBAG),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+```
+
+
+# Visual by YEAR
+```{r}
+ggplot(individ.sum.vis.yr, aes(Year, n_tree, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis.yr, aes(Year, n_site, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis.yr, aes(Year, mean_dbh, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_dbh - se_dbh, ymax = mean_dbh + se_dbh),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis.yr, aes(Year, mean_AG, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_AG - se_AG, ymax = mean_AG + se_AG),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+# ggplot(individ.sum.vis, aes(decade, median_AG, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_AG - se_AG, ymax = median_AG + se_AG),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+ggplot(individ.sum.vis.yr, aes(Year, mean_RGR, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_RGR - se_RGR, ymax = mean_RGR + se_RGR),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+# 
+# ggplot(individ.sum.vis, aes(decade, median_RGR, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_RGR - se_RGR, ymax = median_RGR + se_RGR),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+ggplot(individ.sum.vis.yr, aes(Year, mean_BG, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_BG - se_BG, ymax = mean_BG + se_BG),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+# ggplot(individ.sum.vis, aes(decade, median_BG, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_BG - se_BG, ymax = median_BG + se_BG),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+ggplot(individ.sum.vis.yr, aes(Year, mean_RBAG, group = age_class, color=age_class))+
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(
+    aes(ymin = mean_RBAG - se_RBAG, ymax = mean_RBAG + se_RBAG),
+    width = 0.2,
+    position = position_dodge(width = 0.6)
+  )+
+  theme_bw()+
+  facet_wrap(~SPECIES, nrow=3, scales="free")
+
+
+# ggplot(individ.sum.vis, aes(decade, median_RBAG, group = age_class, color=age_class))+
+#   geom_point(position = position_dodge(width = 0.6), size = 1) +
+#   geom_errorbar(
+#     aes(ymin = median_RBAG - se_RBAG, ymax = median_RBAG + se_RBAG),
+#     width = 0.2,
+#     position = position_dodge(width = 0.6)
+#   )+
+#   theme_bw()+
+#   facet_wrap(~SPECIES, nrow=3, scales="free")
+```
+
+# Understand missing trees
+- There are 859 trees that end up going missing that were measured and their last measurement does not indicate that they are dead
+- 47 site-yeras with more than 1 tree missing, and only 20 with more than 5. going to look into this more
+- want to make sure that any tree that is going to be recorded as dead had a record before...?
+- there are 3116 observations of only NA, but its only 1972 distinct trees - I think a lot of these are because they had DBH less than 2.5 in iniital obs, because if I remove that requirement, then there are 154 obs corresponding to 85 trees - this doesn't really affect the last measurement, but will be important to remove (?) for demographic surveys
+
+```{r}
+# get rid of the small trees
+data.25 <- data %>%
+  filter(is.na(DBH) | DBH > 2.4)
+
+# see which trees only have an NA
+na.trees <- data.25 %>%
+  group_by(UniqueID) %>%
+  filter(all(is.na(DBH))) #%>%
+  #distinct(UniqueID)
+
+# remove the na trees only
+data.25 <- data.25 %>%
+  filter(UniqueID %!in% na.trees$UniqueID)
+
+# Derive site visits from tree data if no separate visit table
+site_visits <- data.25 %>%
+  distinct(SITE, Year)
+
+# --- Step 1: Find the last occasion each tree was recorded ---
+last_seen <- data.25 %>%
+  group_by(UniqueID, SITE) %>%
+  summarise(last_occasion = max(Year), .groups = "drop")
+
+# --- Step 2: Get all site visits that occurred AFTER each tree's last record ---
+# Cross join trees to visits, then filter to later visits
+later_visits <- last_seen %>%
+  left_join(site_visits, by = "SITE") %>%       # all visits for that site
+  filter(Year > last_occasion) %>%                  # only visits after last record
+  # mutate to create a new column that has the difference between teh year and last occassion adn then for each site/tree, select the smallest value
+  mutate(diff = Year - last_occasion) %>%
+  group_by(UniqueID, SITE) %>%
+  slice_min(diff, n=1)
+  
+# select the trees identified in the data file, and filter that those observations are not dead
+data.select <- data.25 %>%
+  filter(UniqueID %in% later_visits$UniqueID) %>%
+  group_by(UniqueID, SITE) %>%
+  slice_max(Year, n =1) %>%
+  filter(DA == 1)
+
+site_miss_tree <- data.select %>%
+  ungroup() %>%
+  group_by(SITE, Year) %>%
+  dplyr::count() %>%
+  filter(n>5)
+```
+
 
 # Plot and Site level details...?
+
+## Plot basal area over time
 
 ## Density 
 
