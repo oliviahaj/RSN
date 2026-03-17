@@ -853,10 +853,11 @@ ggplot(individ.sum.vis.yr, aes(Year, mean_RBAG, group = age_class, color=age_cla
 - There are 859 trees that end up going missing that were measured and their last measurement does not indicate that they are dead (837 if update to 2.5 vs. 2.4 AND make a few changes on teh tree number (see section above)) AND actually if update so that trees shrinking are included, this drops to 796
 - 47 site-yeras with more than 1 tree missing, and only 19 with more than 5. going to look into this more. goes down to 17 with the updated code allowing for trees to shrink
 - want to make sure that any tree that is going to be recorded as dead had a record before...?
-- there are 3116 observations of only NA, but its only 1972 distinct trees - I think a lot of these are because they had DBH less than 2.5 in iniital obs, because if I remove that requirement, then there are 154 obs corresponding to 85 trees - this doesn't really affect the last measurement, but will be important to remove (?) for demographic surveys
+- there are 3116 observations of only NA, but its only 1972 distinct trees - a lot of these are because they had DBH less than 2.5 in iniital obs, because if I remove that requirement, then there are 154 obs corresponding to 85 trees - this doesn't really affect the last measurement, but will be important to remove (?) for demographic surveys
 - there are also a number of trees that are dead and not tracked through time but still seem to be standing - 1443 trees and most seem to be from BDI5 and BDI6 (makes sense, they burned) and then floodplain sites and upland - so there does some to be some loss of the tracking over time - all stsanding dead or dead DBH measured; also about 500 of these were the initially measured standing dead notes
 - seems that there are 121 observations where a tree exceed 2.5 DBH and dipped back down
 - there are 11,713 observations that are only ever dead. most of them were measured in that initial campaign of 2013-2014 where the trees measured as standing dead
+- from the dataset that then cleans all of this there are 162 instances of a tree showing new growth, as in it was recorded dead (DA ==0) but then later came to be recorded as alive with DBH which account for 383 obs across in teh dataset. majority of these observations are in 2018 and forward. A lot of these come from the standing dead measurement (only 14 trees do not originate there)
 ```{r}
 # get rid of the small trees
 data.25 <- data %>%
@@ -947,6 +948,21 @@ diff <- anti_join(stdmt, dead)
 data.demo <- data.25 %>%
   filter(UniqueID %!in% dead$UniqueID)
   
+# how many show the first observation dead and then come back to life
+dead_to_life <- data.demo %>%
+  arrange(UniqueID, Year) %>%
+  group_by(UniqueID) %>%
+  # Create a flag: Was this tree ever recorded as dead in a PREVIOUS year?
+  mutate(was_dead = lag(cumany(DA == 0), default = FALSE)) %>%
+  # Filter for rows where it is currently alive but was previously dead
+  filter(DA == 1 & was_dead) %>%
+  ungroup()
+
+dtlt <- data.demo %>%
+  filter(UniqueID %in% dead_to_life$UniqueID) %>%
+  # try then getting rid of the ones that resulted from the standing dead measuresmetns
+  filter(UniqueID %!in% stdm$UniqueID) 
+
 
 ```
 
@@ -960,14 +976,9 @@ data.demo <- data.25 %>%
 ## Density 
 
 ```{r}
-plot_data <- data %>%
-  # trim the site to be the right
-   mutate(SITE = str_trim(SITE, side = "right"))%>%
-  # get rid of the only salix species
-   filter(SPECIES != "SALBEB") %>%
-  # if it has no trees or has fallen - make -999 0
-  mutate(DA = ifelse(DA == -9999, 0, DA)) %>%
-  mutate(DA = ifelse(DA == -999, 0, DA)) %>%
+
+plot_data <- data.demo %>%
+  filter(SPECIES != "SALBEB")%>%
   group_by(Year,SITE,PLOT, SPECIES, Plot_M2) %>%
   summarize(n=n(), num_alive = sum(DA)) %>%
   mutate(prop_alive = (num_alive/n)*100) 
@@ -981,17 +992,15 @@ ggplot(plot_data, aes(Year, prop_alive))+
 plot_wide <- plot_data %>%
   pivot_wider(names_from = SPECIES, 
               values_from=c("n", "num_alive", "prop_alive"), values_fill=0) %>%
-  mutate(tot_trees = n_POPBAL + n_POPTRE + n_PICGLA + n_PICEA + n_PICMAR + n_UNK + n_LARLAR + n_BETNEO, 
-         tot_alive = num_alive_POPBAL + num_alive_POPTRE + num_alive_PICGLA + num_alive_PICEA + num_alive_PICMAR + num_alive_UNK + num_alive_LARLAR + num_alive_BETNEO, 
+  mutate(tot_trees = n_POPBAL + n_POPTRE + n_PICGLA + n_PICEA + n_PICMAR + n_LARLAR + n_BETNEO, 
+         tot_alive = num_alive_POPBAL + num_alive_POPTRE + num_alive_PICGLA + num_alive_PICEA + num_alive_PICMAR + num_alive_LARLAR + num_alive_BETNEO, 
          prop_alive = tot_alive/tot_trees) %>%
-  rename(sitename= "SITE")%>%
-  left_join(site_info, by = c("sitename")) %>%
-  mutate(age = ifelse(is.na(age), "mature", age))
+  left_join(site_info, by = c("SITE")) 
 
-ggplot(plot_wide, aes(Year.x, prop_alive))+
+ggplot(plot_wide, aes(Year, prop_alive))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age)
+  facet_wrap(~age_class)
 
 # Summarize the site and counts
 site_plots <- plot_wide %>%
