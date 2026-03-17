@@ -67,6 +67,89 @@ data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data','Updated', qaqc_data
 
 ```
 
+# Tree Number Changes
+
+```{r}
+notes_check <- data %>%
+  mutate(
+    # Extracts ALL integers found (returns a list) - NOTES
+    all_notes = str_extract_all(NOTES, "(?<!\\.)\\b\\d+\\b(?!\\.)"),
+    # Extracts ALL integers found (returns a list) - OFFICENOTES
+    all_officenotes = str_extract_all(OfficeNotes, "(?<!\\.)\\b\\d+\\b(?!\\.)")
+  ) %>%
+  filter(lengths(all_notes)>0 | lengths(all_officenotes) >0) %>%
+  filter(OfficeNotes != "Trees Measured Standing dead as a part of initial site measurements in 2013 and 2014. Methodology and measurements should not have continued for this tree in subsequent years.")
+
+
+# For all but the BETNEO, I think it should be the first number, and then UniqueID should be updated...
+up1b <- data %>%
+  filter(SITE == "UP1B") %>%
+  group_by(UniqueID, SPECIES) %>%
+  summarize(n = n(), max = max(Year), min = min(Year))
+
+## Check theUP2b
+up2b <- data %>%
+  filter(SITE == "UP2B") %>%
+  filter(TREE %in% c('194', '6579'))
+
+# these should be preserved as such right now
+bdi4 <- data %>%
+  filter(SITE == "BDI4") %>%
+  filter(TREE %in% c('565', '565_1', '565_2'))
+
+mdi2 <- data %>%
+  filter(SITE == "MDI2") %>%
+  filter(TREE %in% c('539b','539', '544', '544b',
+                     '541b','541', '542', '542b',
+                     '543b','543', '540', '540b'))
+
+gri4 <- data %>%
+  filter(SITE == "GRI4") %>%
+  filter(TREE %in% c('815b','815'))
+
+bfy4 <- data %>%
+  filter(SITE == "UP4A") %>%
+  filter(PLOT == 13) %>%
+  filter(TREE %in% c('815b','815'))
+
+fp2b<- data %>%
+  filter(SITE == "FP2B") %>%
+  filter(PLOT == 2) %>%
+  filter(TREE %in% c('2503','113'))
+```
+
+
+# Fix the TREES and UniqueIDs
+- probably should have Zach integrate this into the main script for future too
+- get rid of nd tree
+- get rid of ? PLOT
+- get rid of trees that end in "b"
+- use the first number in the parenthesis for the UP1B site
+- for UP1B get rid of the betneo in plot 9 that is also tree 523
+- it seems that the officenotes with CHnaged from are already fixed, as are most of the was XXX for a tree number
+
+```{r}
+data.c <- data %>%
+  filter(TREE != "nd") %>%
+  filter(PLOT != "?") %>%
+  filter(!str_ends(TREE, "b|B")) %>%
+  mutate(
+    # Extracts only the digits found inside parentheses
+    paren_num = str_extract(TREE, "(?<=\\()\\d+(?=\\))")
+  ) %>%
+  mutate(TREE = ifelse(is.na(paren_num), TREE, paren_num), 
+         UniqueID2 = ifelse(!is.na(paren_num), paste(SITE, PLOT, TREE, sep = "_"), UniqueID),
+         uniques = UniqueID == UniqueID2, 
+         UniqueID = UniqueID2) %>%
+  # get rid of the bETNEO one
+  filter(!(UniqueID == "UP1B_9_523" & SPECIES == "BETNEO")) %>%
+  select(-c(UniqueID2, paren_num, uniques))
+
+data <- data.c
+
+```
+
+
 # Length and No of measurements
 ```{r}
 unique(data$SITE)
@@ -247,7 +330,6 @@ salbeb <- data %>%
 ## Data cleaning round 2 - after the updates
 - most of initial concerns have been addressed
 ```{r}
-unique(data$SPECIES)
 data.2 <- data %>%
   # trim the site to be the right
    # mutate(SITE = str_trim(SITE, side = "right"))%>%
@@ -275,7 +357,7 @@ str(data.2)
 data.dbh <- data.2 %>%
   filter(!is.na(DBH)) %>%
   # can not do this too, but get rid of really small trees for consistency
-  filter(DBH> 2.4) %>%
+  filter(DBH> 2.49) %>%
   group_by(UniqueID) %>%
   arrange(Year, .by_group = TRUE) %>%
   mutate(
@@ -492,7 +574,7 @@ larlar.ann
 - want a count of the number of unique trees too
 
 ```{r}
-str(data.dbh)
+#str(data.dbh)
 # function to floor decade 
 floor_decade    = function(value){ return(value - value %% 10) }
 
@@ -767,15 +849,28 @@ ggplot(individ.sum.vis.yr, aes(Year, mean_RBAG, group = age_class, color=age_cla
 ```
 
 # Understand missing trees
-- There are 859 trees that end up going missing that were measured and their last measurement does not indicate that they are dead
-- 47 site-yeras with more than 1 tree missing, and only 20 with more than 5. going to look into this more
+- 1967 trees with NA values only ever - mostly the standing dead that were measured
+- There are 859 trees that end up going missing that were measured and their last measurement does not indicate that they are dead (837 if update to 2.5 vs. 2.4 AND make a few changes on teh tree number (see section above)) AND actually if update so that trees shrinking are included, this drops to 796
+- 47 site-yeras with more than 1 tree missing, and only 19 with more than 5. going to look into this more. goes down to 17 with the updated code allowing for trees to shrink
 - want to make sure that any tree that is going to be recorded as dead had a record before...?
 - there are 3116 observations of only NA, but its only 1972 distinct trees - I think a lot of these are because they had DBH less than 2.5 in iniital obs, because if I remove that requirement, then there are 154 obs corresponding to 85 trees - this doesn't really affect the last measurement, but will be important to remove (?) for demographic surveys
-
+- there are also a number of trees that are dead and not tracked through time but still seem to be standing - 1443 trees and most seem to be from BDI5 and BDI6 (makes sense, they burned) and then floodplain sites and upland - so there does some to be some loss of the tracking over time - all stsanding dead or dead DBH measured; also about 500 of these were the initially measured standing dead notes
+- seems that there are 121 observations where a tree exceed 2.5 DBH and dipped back down
+- there are 11,713 observations that are only ever dead. most of them were measured in that initial campaign of 2013-2014 where the trees measured as standing dead
 ```{r}
 # get rid of the small trees
 data.25 <- data %>%
-  filter(is.na(DBH) | DBH > 2.4)
+  #filter(is.na(DBH) | DBH > 2.49) 
+  arrange(UniqueID, Year) %>% # Ensure data is in chronological order
+  group_by(UniqueID) %>%
+  filter(is.na(DBH) | DBH >= 2.49 | cumany(DBH >= 2.49)) %>%
+  ungroup()
+
+# check to see which trees/how many trees dip below 2.5 DBH over time after measuring above
+data.252 <- data %>%
+  filter(is.na(DBH) | DBH > 2.49) 
+
+anti <- anti_join(data.25, data.252)
 
 # see which trees only have an NA
 na.trees <- data.25 %>%
@@ -790,7 +885,7 @@ data.25 <- data.25 %>%
 # Derive site visits from tree data if no separate visit table
 site_visits <- data.25 %>%
   distinct(SITE, Year)
-
+#write.csv(site_visits,'/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_visits.csv', row.names = FALSE)
 # --- Step 1: Find the last occasion each tree was recorded ---
 last_seen <- data.25 %>%
   group_by(UniqueID, SITE) %>%
@@ -813,15 +908,52 @@ data.select <- data.25 %>%
   slice_max(Year, n =1) %>%
   filter(DA == 1)
 
+# summarize this by site
 site_miss_tree <- data.select %>%
   ungroup() %>%
   group_by(SITE, Year) %>%
   dplyr::count() %>%
   filter(n>5)
+
+# select trees identified as missing that are dead but not yet fallen
+data.select.2 <- data.25 %>%
+  filter(UniqueID %in% later_visits$UniqueID) %>%
+  group_by(UniqueID, SITE) %>%
+  slice_max(Year, n =1) %>%
+  filter(DA == 0)%>%
+  filter(DOWN == 1)
+
+# summarize this at the site level
+site_miss_tree.2 <- data.select.2 %>%
+  ungroup() %>%
+  group_by(SITE, Year) %>%
+  dplyr::count() %>%
+  filter(n>5)
+
+# Which trees only ever register as dead - almost all are likely from teh campgain that initially measured the standing dead
+
+dead <- data.25 %>%
+  group_by(UniqueID) %>%
+  filter(all(DA == 0))
+stdm <- data.25 %>%
+  filter(OfficeNotes == "Trees Measured Standing dead as a part of initial site measurements in 2013 and 2014. Methodology and measurements should not have continued for this tree in subsequent years.")
+
+stdmt <- data.25 %>%
+  filter(UniqueID %in% stdm$UniqueID)
+
+diff <- anti_join(stdmt, dead)
+
+# will get rid of trees that are only dead
+data.demo <- data.25 %>%
+  filter(UniqueID %!in% dead$UniqueID)
+  
+
 ```
 
 
 # Plot and Site level details...?
+- working with data.demo now - this data has removed trees that only ever have a DBH of NA as well as ones that are always dead (primarily resulting from trees where initial surveys measured standing dead) and DBH had to be over 2.49, but it allows for shrinkage if a tree exceeds that threshold
+- also includes the initial data filtering of weird tree numbers, etc!
 
 ## Plot basal area over time
 
