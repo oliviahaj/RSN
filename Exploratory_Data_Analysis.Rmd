@@ -251,6 +251,7 @@ data.2 <- data %>%
 - 785 trees that seem to go missing; last measurement does not indicate that they are dead; but importantly this goes to 480 when excluding sites that burned during the record (so close to half go missing b/c they burned). Further, UP2A accounts for a lot of the missing trees, and there was a change in sampling effort in time. So excluding that site as well, it is about 250 trees that go missing. A few sites have around 20 in a year, but by and large, it is pretty low.
 - 906 trees that are dead and go missing without having ever being recorded as DOWN - goes down to 761 if excluding the burned sites and the UP2A with the weird samplign effort stuff. IMportantly all of those that fit into this category are from the UP or FP sites and by in large, in the earlier sampling periods. Likely reflects changes in methodology wiht the official establishment of the RSN network. 
 - now only 23 that seem to maybe come back to life and represent new growht
+- there are 9 that have the first observaiton listed as DA - 6 of these were ones showing new growth (i.e., "measured standing dead"), two are missing DBH (NA), and one has a note that marked 
 
 ## Notes from March
 - 1967 trees with NA values only ever - mostly the standing dead that were measured
@@ -379,10 +380,23 @@ dtlt <- data.demo %>%
   # try then getting rid of the ones that resulted from the standing dead measuresmetns
   filter(UniqueID %in% stdm$UniqueID) 
 
+# how many have the first observation that is dead
+first.dead <- data.demo %>%
+  # Ensure the data is in chronological order for each tree
+  group_by(UniqueID) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  
+  # Keep only the first record for each tree
+  slice(1) %>%
+  
+  # Filter for those that were dead (DA == 0)
+  filter(DA == 0) %>%
+  ungroup()
 ```
 
 # Join Data wiht metadata
 - here we will use data.25 for following analyses, this removes seedlings BUT importantly keeps in trees that shrink after an observation exceeds 2.5 cm. This then removes trees that are only ever recorded as NA
+- not data.demo because none that are only dead in this!
 ```{r}
 # read in the site-year data
 site_year <- read.csv(file = file.path("2026 Data", 'Data_checks', 'site_years.csv'))
@@ -690,7 +704,7 @@ site_growth <- data.dbh %>%
   ungroup() %>%
   filter(!is.na(DBH_diff)) %>%
   # get rid of outliers 
-  filter(Annual_Growth < 4 | Annual_Growth > -4) %>%
+  filter(Annual_Growth < 4 & Annual_Growth > -4) %>%
   group_by(sample.rd, sample.yr, SPECIES, age_class_yr, SITE) %>%
   summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
             mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
@@ -715,7 +729,7 @@ site_growth_ts <- data.dbh %>%
   mutate(size = ifelse(DBH>10, "Large", "Small")) %>%
   filter(!is.na(DBH_diff)) %>%
   # Fitler out outliers in growht
-  filter(Annual_Growth < 4 | Annual_Growth > -4) %>%
+  filter(Annual_Growth < 4 & Annual_Growth > -4) %>%
   group_by(sample.rd,sample.yr, SPECIES, age_class_yr, SITE, size) %>%
   summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
             mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
@@ -1170,19 +1184,11 @@ ggplot(ac_size, aes(sample.yr, mean_RBA2, group = size, color=size))+
 ## Density 
 
 ```{r}
-plot_data <- data.demo %>%
-  filter(SPECIES != "SALBEB")%>%
-  group_by(Year,SITE,PLOT, SPECIES, Plot_M2) %>%
-  summarize(n=n(), num_alive = sum(DA)) %>%
-  mutate(prop_alive = (num_alive/n)*100) 
-
-
-## bring in the plot number info 
-plot.no <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_years.csv')
-str(plot.no)
-
-# merge the plot info to the data
-plot_data <- left_join(plot_data, plot.no, by = c("SITE", 'Year'))
+plot_data <- data.25 %>%
+  group_by(Year,SITE,PLOT, SPECIES, Plot.Area.M2) %>%
+  summarize(n=n(), num_alive = sum(DA), num_dead = n-num_alive) %>%
+  mutate(prop_alive = (num_alive/n)*100) %>%
+  left_join(site_year, by =c("SITE", "Year"))
 
 
 # make it wider to look at full plot level dynamics
@@ -1194,89 +1200,410 @@ plot_wide <- plot_data %>%
          prop_alive = tot_alive/tot_trees)
 
 # scale to the site level
-plot_wide$area.samp <- plot_wide$Plot_M2 * plot_wide$sampled_plots
+plot_wide$area.samp <- plot_wide$Plot.Area.M2 * plot_wide$sampled_plots
 
 # summarize at site level 
 str(plot_data)
 plot_data.2 <- plot_data %>%
   ungroup()%>%
-  group_by(Year, SITE, SPECIES, sampled_plots, Plot_M2, n_plot, age_class) %>%
-  summarize(no_trees = sum(n), no_alive = sum(num_alive), sample = mean(sampled_plots), no_trees_pp = no_trees/sample,
-            no_alive_pp = no_alive/sample, prop_alive_pp = no_alive_pp/no_trees_pp)
+  group_by(sample.yr, SITE, SPECIES, sampled_plots_period, Plot.Area.M2, age_class_yr) %>%
+  summarize(no_trees = sum(n), no_alive = sum(num_alive), sample = mean(sampled_plots), plot_area= mean(Plot.Area.M2), no_trees_pp = no_trees/sample, no_alive_pp = no_alive/sample, prop_alive_pp = no_alive_pp/no_trees_pp, no_trees_m2 = no_trees_pp/plot_area, no_alive_m2 = no_alive_pp/plot_area, prop_alive_m2 = no_alive_m2/no_trees_m2)
 
 plot_wide.2 <- plot_data.2 %>%
-  select(-c(no_trees, no_alive, sample))%>%
+  select(-c(no_trees, no_alive, sample, no_trees_pp, no_alive_pp, prop_alive_pp))%>%
   ungroup()%>%
   pivot_wider(names_from = SPECIES, 
-              values_from=c("no_trees_pp", "no_alive_pp", "prop_alive_pp"), values_fill=0) %>%
-  mutate(tot_trees = no_trees_pp_POPBAL + no_trees_pp_POPTRE + no_trees_pp_PICGLA + no_trees_pp_PICEA + no_trees_pp_PICMAR + no_trees_pp_LARLAR + no_trees_pp_BETNEO, 
-         tot_alive = no_alive_pp_POPBAL + no_alive_pp_POPTRE + no_alive_pp_PICGLA + no_alive_pp_PICEA + no_alive_pp_PICMAR + no_alive_pp_LARLAR + no_alive_pp_BETNEO, 
-         prop_alive = tot_alive/tot_trees, decid_alive = no_alive_pp_POPBAL + no_alive_pp_POPTRE + no_alive_pp_BETNEO, con_alive = no_alive_pp_PICGLA + no_alive_pp_PICEA + no_alive_pp_PICMAR + no_alive_pp_LARLAR) 
+              values_from=c("no_trees_m2", "no_alive_m2", "prop_alive_m2"), values_fill=0) %>%
+  mutate(tot_trees = no_trees_m2_POPBAL + no_trees_m2_POPTRE + no_trees_m2_PICGLA + no_trees_m2_PICEA + no_trees_m2_PICMAR + no_trees_m2_LARLAR + no_trees_m2_BETNEO, 
+         tot_alive = no_alive_m2_POPBAL + no_alive_m2_POPTRE + no_alive_m2_PICGLA + no_alive_m2_PICEA + no_alive_m2_PICMAR + no_alive_m2_LARLAR + no_alive_m2_BETNEO, 
+         prop_alive = tot_alive/tot_trees, decid_alive = no_alive_m2_POPBAL + no_alive_m2_POPTRE + no_alive_m2_BETNEO, con_alive = no_alive_m2_PICGLA + no_alive_m2_PICEA + no_alive_m2_PICMAR + no_alive_m2_LARLAR) 
 
 
-ggplot(plot_wide.2, aes(Year, tot_trees, color=age_class))+
+# get the units right!
+
+ggplot(plot_wide.2, aes(sample.yr, tot_trees, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  ylab("Total Trees (m2)")+
+  facet_wrap(~age_class_yr)
 
-ggplot(plot_wide.2, aes(Year, tot_alive, color=age_class))+
+ggplot(plot_wide.2, aes(sample.yr, tot_alive, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  ylab("Total Alive Trees (m2)")+
+  facet_wrap(~age_class_yr)
 
-ggplot(plot_wide.2, aes(Year, decid_alive, color=age_class))+
+ggplot(plot_wide.2, aes(sample.yr, decid_alive, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  ylab("Alive Deciduous Trees (m2)")+
+  facet_wrap(~age_class_yr)
 
-ggplot(plot_wide.2, aes(Year, con_alive, color=age_class))+
+ggplot(plot_wide.2, aes(sample.yr, con_alive, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  ylab("Alive Coniferous Trees (m2)")+
+  facet_wrap(~age_class_yr)
 
-ggplot(plot_wide.2, aes(Year, prop_alive, color=age_class))+
+ggplot(plot_wide.2, aes(sample.yr, prop_alive, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  ylab("Proportion Alive")+
+  facet_wrap(~age_class_yr)
 ```
 
-## Plot level BA deets
+## Density of large trees
+
 ```{r}
-ba.plot <- data.demo %>%
-  filter(SPECIES != "SALBEB")%>%
+plot_large <- data.25 %>%
+  filter(DBH >=10) %>%
+  group_by(Year,SITE,PLOT, SPECIES, Plot.Area.M2) %>%
+  summarize(n=n(), num_alive = sum(DA), num_dead = n-num_alive) %>%
+  mutate(prop_alive = (num_alive/n)*100) %>%
+  left_join(site_year, by =c("SITE", "Year"))
+
+
+# make it wider to look at full plot level dynamics
+plot_wide_large <- plot_large %>%
+  pivot_wider(names_from = SPECIES,
+              values_from=c("n", "num_alive", "prop_alive"), values_fill=0) %>%
+  mutate(tot_trees = n_POPBAL + n_POPTRE + n_PICGLA + n_PICMAR + n_LARLAR + n_BETNEO,
+         tot_alive = num_alive_POPBAL + num_alive_POPTRE + num_alive_PICGLA  + num_alive_PICMAR + num_alive_LARLAR + num_alive_BETNEO,
+         prop_alive = tot_alive/tot_trees)
+
+# scale to the site level
+plot_wide_large$area.samp <- plot_wide_large$Plot.Area.M2 * plot_wide_large$sampled_plots
+
+# summarize at site level 
+plot_data.large<- plot_large %>%
+  ungroup()%>%
+  group_by(sample.yr, SITE, SPECIES, sampled_plots_period, Plot.Area.M2, age_class_yr) %>%
+  summarize(no_trees = sum(n), no_alive = sum(num_alive), sample = mean(sampled_plots), plot_area= mean(Plot.Area.M2), no_trees_pp = no_trees/sample, no_alive_pp = no_alive/sample, prop_alive_pp = no_alive_pp/no_trees_pp, no_trees_m2 = no_trees_pp/plot_area, no_alive_m2 = no_alive_pp/plot_area, prop_alive_m2 = no_alive_m2/no_trees_m2)
+
+plot_wide_large <- plot_data.large %>%
+  select(-c(no_trees, no_alive, sample, no_trees_pp, no_alive_pp, prop_alive_pp))%>%
+  ungroup()%>%
+  pivot_wider(names_from = SPECIES, 
+              values_from=c("no_trees_m2", "no_alive_m2", "prop_alive_m2"), values_fill=0) %>%
+  mutate(tot_trees = no_trees_m2_POPBAL + no_trees_m2_POPTRE + no_trees_m2_PICGLA  + no_trees_m2_PICMAR + no_trees_m2_LARLAR + no_trees_m2_BETNEO, 
+         tot_alive = no_alive_m2_POPBAL + no_alive_m2_POPTRE + no_alive_m2_PICGLA + no_alive_m2_PICMAR + no_alive_m2_LARLAR + no_alive_m2_BETNEO, 
+         prop_alive = tot_alive/tot_trees, decid_alive = no_alive_m2_POPBAL + no_alive_m2_POPTRE + no_alive_m2_BETNEO, con_alive = no_alive_m2_PICGLA +  no_alive_m2_PICMAR + no_alive_m2_LARLAR) 
+
+
+# get the units right!
+ggplot(plot_wide_large, aes(sample.yr, tot_trees, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Total Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_large, aes(sample.yr, tot_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Total Alive Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_large, aes(sample.yr, decid_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Alive Deciduous Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_large, aes(sample.yr, con_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Alive Coniferous Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_large, aes(sample.yr, prop_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Proportion Alive")+
+  facet_wrap(~age_class_yr)
+```
+
+
+## Density of small trees
+
+```{r}
+plot_small <- data.25 %>%
+  filter(DBH < 10) %>%
+  group_by(Year,SITE,PLOT, SPECIES, Plot.Area.M2) %>%
+  summarize(n=n(), num_alive = sum(DA), num_dead = n-num_alive) %>%
+  mutate(prop_alive = (num_alive/n)*100) %>%
+  left_join(site_year, by =c("SITE", "Year"))
+
+
+# make it wider to look at full plot level dynamics
+plot_wide_small <- plot_small %>%
+  pivot_wider(names_from = SPECIES,
+              values_from=c("n", "num_alive", "prop_alive"), values_fill=0) %>%
+  mutate(tot_trees = n_POPBAL + n_POPTRE + n_PICGLA + n_PICMAR + n_LARLAR + n_BETNEO,
+         tot_alive = num_alive_POPBAL + num_alive_POPTRE + num_alive_PICGLA  + num_alive_PICMAR + num_alive_LARLAR + num_alive_BETNEO,
+         prop_alive = tot_alive/tot_trees)
+
+# scale to the site level
+plot_wide_small$area.samp <- plot_wide_small$Plot.Area.M2 * plot_wide_small$sampled_plots
+
+# summarize at site level 
+plot_data.small<- plot_small %>%
+  ungroup()%>%
+  group_by(sample.yr, SITE, SPECIES, sampled_plots_period, Plot.Area.M2, age_class_yr) %>%
+  summarize(no_trees = sum(n), no_alive = sum(num_alive), sample = mean(sampled_plots), plot_area= mean(Plot.Area.M2), no_trees_pp = no_trees/sample, no_alive_pp = no_alive/sample, prop_alive_pp = no_alive_pp/no_trees_pp, no_trees_m2 = no_trees_pp/plot_area, no_alive_m2 = no_alive_pp/plot_area, prop_alive_m2 = no_alive_m2/no_trees_m2)
+
+plot_wide_small <- plot_data.small %>%
+  select(-c(no_trees, no_alive, sample, no_trees_pp, no_alive_pp, prop_alive_pp))%>%
+  ungroup()%>%
+  pivot_wider(names_from = SPECIES, 
+              values_from=c("no_trees_m2", "no_alive_m2", "prop_alive_m2"), values_fill=0) %>%
+  mutate(tot_trees = no_trees_m2_POPBAL + no_trees_m2_POPTRE + no_trees_m2_PICGLA  + no_trees_m2_PICMAR + no_trees_m2_LARLAR + no_trees_m2_BETNEO, 
+         tot_alive = no_alive_m2_POPBAL + no_alive_m2_POPTRE + no_alive_m2_PICGLA + no_alive_m2_PICMAR + no_alive_m2_LARLAR + no_alive_m2_BETNEO, 
+         prop_alive = tot_alive/tot_trees, decid_alive = no_alive_m2_POPBAL + no_alive_m2_POPTRE + no_alive_m2_BETNEO, con_alive = no_alive_m2_PICGLA +  no_alive_m2_PICMAR + no_alive_m2_LARLAR) 
+
+
+# get the units right!
+ggplot(plot_wide_small, aes(sample.yr, tot_trees, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Total Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_small, aes(sample.yr, tot_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Total Alive Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_small, aes(sample.yr, decid_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Alive Deciduous Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_small, aes(sample.yr, con_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Alive Coniferous Trees (m2)")+
+  facet_wrap(~age_class_yr)
+
+ggplot(plot_wide_small, aes(sample.yr, prop_alive, color=age_class_yr))+
+  geom_point()+
+  theme_bw() + 
+  ylab("Proportion Alive")+
+  facet_wrap(~age_class_yr)
+```
+
+# Mortality
+```{r}
+site_mortality <- data.25 %>%
+  ungroup() %>%
+  arrange(UniqueID, Year) %>%
+  group_by(UniqueID) %>%
+  # We look for the first index (row number) where DA is 0
+  # but only if that index is NOT 1.
+  filter(which(DA == 0)[1] > 1) %>%
+  # Now that we've narrowed it to the right trees, 
+  # we isolate that specific first-death row.
+  slice(which(DA == 0)[1]) %>%
+  ungroup() %>%
+  left_join(site_year, by= c("SITE", "Year")) %>%
+  group_by(sample.yr, SITE, SPECIES, Plot.Area.M2, sampled_plots_period, age_class_yr) %>%
+  summarize(num_dead = n(), num_dead_pp = num_dead/mean(sampled_plots_period), num_dead_m2 = num_dead_pp/mean(Plot.Area.M2)) %>%
+  ungroup() 
+
+
+# Graph the mortality
+ggplot(site_mortality, aes(sample.yr, num_dead_m2, color = age_class_yr))+
+  geom_jitter(alpha=0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+# Join these dead with the density estimate with all of the trees at a site
+site.mortality2 <- plot_data.2 %>%
+  left_join(site_mortality) %>%
+  mutate(num_dead_m2 = replace_na(num_dead_m2, 0), 
+         prop_dead_m2 = num_dead_m2/no_trees_m2)
+
+ggplot(site.mortality2, aes(sample.yr, prop_dead_m2, color = age_class_yr))+
+  geom_jitter(alpha=0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+
+# Large mortality
+large_trees <- data.25 %>%
+  filter(DBH>=10) 
+
+large_mortality <- data.25 %>%
+  filter(UniqueID%in% large_trees$UniqueID) %>%
+  ungroup() %>%
+  arrange(UniqueID, Year) %>%
+  group_by(UniqueID) %>%
+  # We look for the first index (row number) where DA is 0
+  # but only if that index is NOT 1.
+  filter(which(DA == 0)[1] > 1) %>%
+  # Now that we've narrowed it to the right trees, 
+  # we isolate that specific first-death row.
+  slice(which(DA == 0)[1]) %>%
+  ungroup() %>%
+  left_join(site_year, by= c("SITE", "Year")) %>%
+  group_by(sample.yr, SITE, SPECIES, Plot.Area.M2, sampled_plots_period, age_class_yr) %>%
+  summarize(num_dead = n(), num_dead_pp = num_dead/mean(sampled_plots_period), num_dead_m2 = num_dead_pp/mean(Plot.Area.M2)) %>%
+  ungroup() 
+
+
+# Graph the mortality
+ggplot(large_mortality, aes(sample.yr, num_dead_m2, color = age_class_yr))+
+  geom_jitter(alpha=0.4)+
+  theme_bw()+
+  ggtitle("Large Tree Mortality")+
+  facet_wrap(~SPECIES)
+
+
+#msall mortality
+small_trees <- data.25 %>%
+  group_by(UniqueID) %>%
+  summarize(max = max(DBH, na.rm=TRUE))%>%
+  filter(max<10) 
+
+small_mortality <- data.25 %>%
+  filter(UniqueID %in% small_trees$UniqueID) %>%
+  ungroup() %>%
+  arrange(UniqueID, Year) %>%
+  group_by(UniqueID) %>%
+  # We look for the first index (row number) where DA is 0
+  # but only if that index is NOT 1.
+  filter(which(DA == 0)[1] > 1) %>%
+  # Now that we've narrowed it to the right trees, 
+  # we isolate that specific first-death row.
+  slice(which(DA == 0)[1]) %>%
+  ungroup() %>%
+  left_join(site_year, by= c("SITE", "Year")) %>%
+  group_by(sample.yr, SITE, SPECIES, Plot.Area.M2, sampled_plots_period, age_class_yr) %>%
+  summarize(num_dead = n(), num_dead_pp = num_dead/mean(sampled_plots_period), num_dead_m2 = num_dead_pp/mean(Plot.Area.M2)) %>%
+  ungroup() 
+
+# Graph the mortality
+ggplot(small_mortality, aes(sample.yr, num_dead_m2, color = age_class_yr))+
+  geom_jitter(alpha=0.4)+
+  theme_bw()+
+  ggtitle("Small Tree Mortality")+
+  facet_wrap(~SPECIES)
+
+
+```
+
+
+# Plot level BA deets
+- note that BA includes all TREES not limited to dead/alive - should maybe update to just be alive....
+```{r}
+ba.plot <- data.25%>%
+  filter(DA == 1) %>%
   mutate(BA = 0.00007854 * (DBH)^2) %>%
   ungroup() %>%
-  group_by(Year,SITE,PLOT, SPECIES, Plot_M2) %>%
+  group_by(Year,SITE,PLOT, SPECIES, Plot.Area.M2) %>%
   summarize(n=n(), num_alive = sum(DA), plot_BA = sum(BA)) %>%
-  left_join(plot.no, by = c("SITE", "Year"))
+  left_join(site_year, by = c("SITE", "Year"))
 
 # site level summary
 ba.site <- ba.plot %>%
   ungroup()%>%
-  group_by(Year, SITE, SPECIES, sampled_plots, Plot_M2, n_plot, age_class) %>%
-  summarize(no_trees = sum(n), no_alive = sum(num_alive), sample = mean(sampled_plots), no_trees_pp = no_trees/sample, ba = sum(plot_BA, na.rm = TRUE), ba_pp = ba/sample)
+  group_by(sample.yr, SITE, SPECIES, sampled_plots_period, Plot.Area.M2, age_class_yr) %>%
+  summarize(no_trees = sum(n), no_alive = sum(num_alive), sample = mean(sampled_plots), plot.area = mean(Plot.Area.M2), no_trees_pp = no_trees/sample, ba = sum(plot_BA, na.rm = TRUE), ba_pp = ba/sample, ba_m2 = ba_pp/plot.area)
 
 ba.site.wide<- ba.site %>%
-  select(-c(no_trees, no_alive, sample, ba, no_trees_pp))%>%
+  select(-c(no_trees, no_alive, sample, ba, no_trees_pp, ba_pp))%>%
   ungroup()%>%
   pivot_wider(names_from = SPECIES, 
-              values_from=c("ba_pp"), values_fill=0) %>%
+              values_from=c("ba_m2"), values_fill=0) %>%
   mutate(sum_ba = POPBAL + POPTRE + BETNEO +PICGLA + PICEA + PICMAR + LARLAR, decid_ba = POPBAL + POPTRE + BETNEO, con_ba = PICGLA + PICEA + PICMAR + LARLAR) 
 
-ggplot(ba.site.wide, aes(Year, sum_ba, color=age_class))+
+ggplot(ba.site.wide, aes(sample.yr, sum_ba, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  facet_wrap(~age_class_yr)
 
-ggplot(ba.site.wide, aes(Year, decid_ba, color=age_class))+
+ggplot(ba.site.wide, aes(sample.yr, decid_ba, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  facet_wrap(~age_class_yr)
 
-ggplot(ba.site.wide, aes(Year, con_ba, color=age_class))+
+ggplot(ba.site.wide, aes(sample.yr, con_ba, color=age_class_yr))+
   geom_point()+
   theme_bw() + 
-  facet_wrap(~age_class)
+  facet_wrap(~age_class_yr)
+
+ggplot(data = subset(ba.site, ba.site$SPECIES %!in% c("LARLAR", "PICEA")), aes(sample.yr, ba_m2, color = age_class_yr))+
+  geom_jitter(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
   
 ```
+# BA and Density
+
+```{r}
+# taking site level BA and density for each sampling year
+ba.dens <- left_join(ba.site.wide, plot_wide.2)
+#str(ba.dens)
+
+ggplot(ba.dens, aes(sum_ba, tot_alive))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_class_yr, scales="free")
+
+
+ggplot(ba.dens, aes(sum_ba, decid_alive))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_class_yr, scales="free")
+
+ggplot(ba.dens, aes(sum_ba, con_alive))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_class_yr, scales="free")
+
+```
+
+
+# BA and Growth Rate
+
+```{r}
+ba.dens.gr <- left_join(ba.site, site_growth)
+ba.dens.gr.2 <- ba.dens.gr %>%
+  filter(!is.na(mean_AG))
+
+#str(ba.dens.gr.2)
+
+ggplot(ba.dens.gr.2, aes(ba_m2, max_dbh, color = age_class_yr)) +
+  geom_point(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+ggplot(ba.dens.gr.2, aes(ba_m2, max_dbh, color = (no_trees_pp/plot.area ))) +
+  geom_point(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+ggplot(ba.dens.gr.2, aes(ba_m2, mean_AG, color = age_class_yr)) +
+  geom_point(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+ggplot(ba.dens.gr.2, aes(ba_m2, mean_AG, color = (no_trees_pp/plot.area ))) +
+  geom_point(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+ggplot(ba.dens.gr.2, aes(ba_m2, mean_RBAG, color = age_class_yr)) +
+  geom_point(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+ggplot(ba.dens.gr.2, aes(ba_m2, mean_RGR, color = age_class_yr)) +
+  geom_point(alpha = 0.4)+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+```
+
+
 
