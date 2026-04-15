@@ -1,0 +1,765 @@
+---
+title: "RSN_Summary_0415"
+author: "OLH"
+date: "2026-04-15"
+output: 
+  bookdown::html_document2:
+    code_folding: hide
+    toc: TRUE
+    toc_depth: 4
+    toc_float: TRUE
+    collapsed: TRUE
+    theme: spacelab
+    fig_caption: TRUE
+    number_sections: FALSE
+---
+# Setup
+<style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.width=5,  fig.height=3.5, fig.align="center")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+# Downlaod data
+- most recent QA/QC data
+- site metadata - both the overall summary file adn the site-year that will help with the sampling effort
+
+```{r}
+
+# create data folders
+dir.create(file.path("2026 Data"), showWarnings = F)
+dir.create(file.path("2026 Data", 'RSN_Site'), showWarnings = F)
+dir.create(file.path("2026 Data", 'QAQC_Data'), showWarnings = F)
+dir.create(file.path("2026 Data", 'QAQC_Data', 'Updated'), showWarnings = F)
+
+# Identify desired files to download
+site_info_file <- "RSN_Master_Site.csv"
+qaqc_data <- "RSN_Inventory_QAQC_Final_2026-04-09.csv"
+
+# Download data files
+# site info
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1PWk45RgTK47B-PX71QG6BazpJyAtidQ1")) %>% 
+  dplyr::filter(name == site_info_file) %>% 
+  googledrive::drive_download(file = .$id, overwrite = T,
+                              path = file.path("2026 Data", "RSN_Site", .$name))
+
+# qaqc data
+googledrive::drive_ls(googledrive::as_id("https://drive.google.com/drive/folders/1VR7WRVcF3behOWDoXtuFlN9wK0M24jOb")) %>% 
+  dplyr::filter(name == qaqc_data) %>% 
+  googledrive::drive_download(file = .$id, overwrite = T,
+                              path = file.path("2026 Data", "QAQC_Data", "Updated", .$name))
+
+# Read in site info and data files
+site_info <- read.csv(file = file.path("2026 Data", 'RSN_Site', 'site_metadata_OLH.csv'))
+
+data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data','Updated', qaqc_data))
+
+site_year <- read.csv(file = file.path("2026 Data", 'Data_checks', 'site_years.csv'))
+
+```
+
+# Post QAQC Processing
+- remove FP1A
+- Get rid of trees that are below 2.5 cm at DBH (Unless they shrink down)
+- Get rid of trees that are only ever NA
+- Remove one SALBEB obs
+
+```{r}
+data.2 <- data %>%
+  # remove salbeb
+  filter(SPECIES != "SALBEB") %>%
+  # remove site FP1A
+  filter(SITE != "FP1A")%>%
+  # set up for removing small trees
+  arrange(UniqueID, Year) %>% # Ensure data is in chronological order
+  group_by(UniqueID) %>%
+  # keep NA DBH, DBH > 2.5, or if the DBH exceeds 2.5, it will keep subsequent observatoins
+  # this code above removes 4693 observations
+  filter(is.na(DBH) | DBH >= 2.49 | cumany(DBH >= 2.49)) %>%
+  ungroup()
+
+
+# see which trees only have an NA - this is after the seedlings have been removed, so in many cases these had an intiial measurement that was NA and corresponded to somehting like 0.7cm
+na.trees <- data.2 %>%
+  group_by(UniqueID) %>%
+  filter(all(is.na(DBH))) #%>%
+  #distinct(UniqueID)
+
+# remove the na trees only
+data.25 <- data.2 %>%
+  filter(UniqueID %!in% na.trees$UniqueID)
+
+
+```
+
+# Join the data
+- have data.25 which is all of the trees in the analysis without metadata
+- site_data corresponds to the site-year and site metadata combo
+- data.25.site - is the tree inventory joined with all of the site level data
+
+```{r}
+# join the site-year data with the overall site-metadata
+site_data <- left_join(site_year, site_info, by = "SITE")
+
+data.25.site <- left_join(data.25, site_data, by = c("SITE", "Year"))
+
+```
+
+# Summary of site data
+
+# Summary of inventory data
+
+## Sampling effort
+```{r}
+mature <- ggplot(data = subset(site_year, site_year$age_class == "Mature"), aes(SITE, Year, color = as.factor(sample.rd))) +
+  geom_point(size=2) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+  ggtitle("Mature Stands")
+mature
+
+inter <- ggplot(data = subset(site_year, site_year$age_class == "Intermediate"), aes(SITE, Year,color = as.factor(sample.rd))) + 
+  geom_point() +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+  ggtitle("Intermediate Stands")
+inter
+
+young <- ggplot(data = subset(site_year, site_year$age_class == "Young"), aes(SITE, Year,color = as.factor(sample.rd))) + 
+  geom_point() +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
+  ggtitle("Young Stands")
+young
+
+# graph of sites and age classes
+site.yr.sum <- site_year %>%
+  group_by(age_class_yr, sample.rd, sample.yr) %>%
+  summarize(num=n())
+
+ggplot(site.yr.sum, aes(sample.yr, num, group=age_class_yr, fill=age_class_yr))+
+  geom_col(position="dodge", color="black")+
+  theme_bw() +
+  ylab("Number of Sites")+
+  xlab("Sample Year") +
+  theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+```
+
+## No of trees
+```{r}
+first_last <- data.25.site %>%
+  group_by(SITE) %>%
+  summarize(min = min(sample.rd), max = max(sample.rd)) %>%
+  pivot_longer(cols = min:max, names_to = "min", values_to = "sample.rd") %>%
+  mutate(census = ifelse(min == "min", "first", "last")) %>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_")) %>%
+  select(site_yr, census)
+
+data.summary <- data.25.site %>%
+  group_by(SITE, sample.yr, sample.rd, SPECIES, age_class_yr) %>%
+  summarize(n = n(), n_alive = sum(DA), n_dead = n - n_alive, mean_DBH = mean(DBH, na.rm = T), se_DBH = (sd(DBH, na.rm = T))/(sqrt(n()))) %>%
+  ungroup() %>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_"))%>%
+  filter(site_yr %in% first_last$site_yr) %>%  left_join(first_last)%>%
+  group_by(census, SPECIES, age_class_yr) %>%
+  summarize(n_trees = sum(n), n_dead = sum(n_dead), n_site = n())
+
+wide_table <- data.summary %>%
+  mutate(age_class_yr = factor(age_class_yr, levels = c("Mature", "Intermediate", "Young"))) %>%
+  pivot_wider(
+    names_from = c(census, age_class_yr),
+    values_from = c(n_trees, n_dead, n_site)
+  )
+```
+
+## DBH Summaries by age class and species
+- I think also want these by first and last census?
+
+```{r}
+dbh_summary <- data.25.site %>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_"))%>%
+  filter(site_yr %in% first_last$site_yr) %>%  left_join(first_last) %>%
+  filter(!is.na(DBH)) %>%
+  filter(SPECIES != "PICEA")
+
+# Ensure age_class_yr is a factor for discrete coloring
+dbh_summary$age_class_yr <-factor(dbh_summary$age_class_yr, levels = c("Mature", "Intermediate", "Young"))
+
+first_dbh <- ggplot(data = subset(dbh_summary, dbh_summary$census == "first"), aes(x = DBH, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+  geom_density(alpha = 0.5) + 
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ SPECIES, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    title = "DBH Distribution during First Census",
+    x = "DBH",
+    y = "Density",
+    fill = "Age Class"
+  )
+first_dbh
+
+last_dbh <- ggplot(data = subset(dbh_summary, dbh_summary$census == "last"), aes(x = DBH, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+  geom_density(alpha = 0.5) + 
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ SPECIES, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    title = "DBH Distribution during Last Census",
+    x = "DBH",
+    y = "Density",
+    fill = "Age Class"
+  )
+last_dbh
+```
+
+# Tree level metrics
+- first calc the BA, RGR, etc at the tree level
+
+```{r}
+trees <- data.25 %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(
+    lag_DBH = lag(DBH),
+    # BA in m2
+    BA = 0.00007854 * (DBH)^2,
+    BA_diff = BA - lag(BA),
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+    RGR = (log(DBH) - log(lag(DBH)))/Year_diff,
+    RBA = (log(BA) - log(lag(BA)))/Year_diff,
+    Year_before = lag(Year)
+  ) %>%
+  #filter(!is.na(Annual_Growth)) %>%
+  left_join(site_data, by = c("SITE", "Year")) %>%
+  select(-c(TREE_raw:Flag_LastObs_SpeciesSpike)) %>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_"))
+```
+
+## some viz
+
+```{r}
+trees.2 <- trees %>%
+  filter(site_yr %in% first_last$site_yr) %>%  left_join(first_last) 
+
+
+last_RGR <- ggplot(data = subset(trees.2, trees.2$census == "last"), aes(x = RGR, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+  geom_density(alpha = 0.5) + 
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ SPECIES, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    title = "Relative growth Rate Last Census",
+    x = "RGR",
+    y = "Density",
+    fill = "Age Class"
+  )
+last_RGR
+
+last_RBA <- ggplot(data = subset(trees.2, trees.2$census == "last"), aes(x = RBA, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+  geom_density(alpha = 0.5) + 
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ SPECIES, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    title = "Relative BA growth Rate Last Census",
+    x = "RBA",
+    y = "Density",
+    fill = "Age Class"
+  )
+last_RBA
+```
+
+# Site-level aggregation
+```{r}
+site_growth <- trees %>%
+  ungroup() %>%
+  filter(!is.na(Annual_Growth)) %>%
+  # get rid of outliers 
+  #filter(Annual_Growth < 4 & Annual_Growth > -4) %>%
+  group_by(sample.rd, sample.yr, SPECIES, age_class_yr, SITE) %>%
+  summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
+            mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
+            mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()),
+            mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
+            mean_RBA = mean(RBA), median_RBA = median(RBA), se_RBA = sd(RBA)/sqrt(n())
+            ) %>%
+  arrange(SPECIES, sample.rd, sample.yr, age_class_yr) %>%
+  # remove tree species wiht limited coverage
+  filter(SPECIES %!in% c("PICEA", "LARLAR")) %>%
+  # get rid of obs with only 1 site
+  # filter(n_plot >1) %>%
+  # # requrie at least 5 trees
+  filter(n_tree >4)
+
+
+site_growth_ts <- trees %>%
+  ungroup() %>%
+  # make a new column for if a tree is large or small
+  mutate(size = ifelse(DBH>10, "Large", "Small")) %>%
+  filter(!is.na(Annual_Growth)) %>%
+  group_by(sample.rd,sample.yr, SPECIES, age_class_yr, SITE, size) %>%
+  summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
+            mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
+            mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()),
+            mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
+            mean_RBA = mean(RBA), median_RBA = median(RBA), se_RBA = sd(RBA)/sqrt(n())
+            ) %>%
+  arrange(SPECIES, sample.rd, sample.yr, age_class_yr, size) %>%
+# remove tree species wiht limited coverage
+  filter(SPECIES %!in% c("PICEA", "LARLAR")) %>%
+  # get rid of obs with only 1 site
+  # filter(n_plot >1) %>%
+  # # requrie at least more than 4 trees (so min 5)
+  filter(n_tree > 4)
+
+```
+
+# Aggregate at age class, species level, etc.
+
+## By age class, species, and size
+```{r}
+ac_sample <-  site_growth%>%
+  ungroup()%>%
+  group_by(sample.yr, SPECIES, age_class_yr) %>%
+  summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
+            mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
+            mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
+            mean_RGR2 = mean(mean_RGR), median_RGR = median(mean_RGR), se_RGR = sd(mean_RGR)/sqrt(n()),
+            mean_RBA2 = mean(mean_RBA), se_RBA = sd(mean_RBA)/sqrt(n())
+            ) %>%
+  # must be in more than one site
+  filter(n_site > 1)
+
+ac_sample.size <- site_growth_ts %>%
+    ungroup()%>%
+  group_by(sample.yr, SPECIES, age_class_yr, size) %>%
+  summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
+            mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
+            mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
+            mean_RGR2 = mean(mean_RGR), median_RGR = median(mean_RGR), se_RGR = sd(mean_RGR)/sqrt(n()),
+            mean_RBA2 = mean(mean_RBA), se_RBA = sd(mean_RBA)/sqrt(n())
+            )  #%>%
+  #filter(n_site > 1)
+```
+
+## By species and size
+
+```{r}
+
+sp_sample <-  site_growth%>%
+  ungroup()%>%
+  group_by(sample.yr, SPECIES) %>%
+  summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
+            mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
+            mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
+            mean_RGR2 = mean(mean_RGR), median_RGR = median(mean_RGR), se_RGR = sd(mean_RGR)/sqrt(n()),
+            mean_RBA2 = mean(mean_RBA), se_RBA = sd(mean_RBA)/sqrt(n())
+            ) %>%
+  # must be in more than one site
+  filter(n_site > 1)
+
+sp_sample.size <- site_growth_ts %>%
+    ungroup()%>%
+  group_by(sample.yr, SPECIES, size) %>%
+  summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
+            mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
+            mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
+            mean_RGR2 = mean(mean_RGR), median_RGR = median(mean_RGR), se_RGR = sd(mean_RGR)/sqrt(n()),
+            mean_RBA2 = mean(mean_RBA), se_RBA = sd(mean_RBA)/sqrt(n())
+            )  %>%
+  filter(n_site > 1)
+
+```
+
+## Visualize growht over time
+
+### Species
+
+```{r}
+ggplot(sp_sample, aes(sample.yr, mean_RGR2 *100
+                      )) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) + (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) - (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "#56B4E9"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL)+
+        theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+
+
+
+# look at only last two samplign periods
+
+ggplot(data =  subset(site_growth, site_growth$sample.yr %in% c(2018, 2024)), aes(as.factor(sample.yr), mean_RGR *100)) +
+   geom_boxplot(
+                width = 0.5,
+               outlier.shape = NA)+
+    geom_jitter(size = 1.5,
+  alpha = 0.7) +
+  facet_wrap(~ SPECIES) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL) +
+      theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+
+```
+
+
+### Species adn Size
+
+```{r}
+ggplot(sp_sample.size, aes(sample.yr, mean_RGR2 *100,
+                      color = size)) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) + (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) - (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "Small" = "#56B4E9",
+    "Large" = "orange"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL)
+
+ggplot(sp_sample.size, aes(sample.yr, mean_RBA2 *100,
+                      color = size)) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RBA2*100) + (se_RBA*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RBA2*100) - (se_RBA*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "Small" = "#56B4E9",
+    "Large" = "orange"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "BA Growth (%)", color = NULL) +
+    theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+
+# look at only last two samplign periods
+
+ggplot(data =  subset(site_growth_ts, site_growth_ts$sample.yr %in% c(2018, 2024)), aes(as.factor(sample.yr), mean_RGR *100,
+                      color = size)) +
+   geom_boxplot(position = position_dodge(width = 0.6),
+                width = 0.5,
+               outlier.shape = NA)+
+    geom_jitter(position = position_jitterdodge(
+    jitter.width = 0.1,
+    dodge.width = 0.6
+  ),
+  size = 1.5,
+  alpha = 0.7) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "Small" = "#56B4E9",
+    "Large" = "orange"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL) +
+      theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+
+
+```
+
+
+### Species and age class
+```{r}
+ggplot(ac_sample, aes(sample.yr, mean_RGR2 *100, color = age_class_yr
+                      )) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) + (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) - (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL)+
+        theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+
+
+
+# look at only last two samplign periods
+
+ggplot(data =  subset(site_growth, site_growth$sample.yr %in% c(2018, 2024)), aes(as.factor(sample.yr), mean_RGR *100, color =age_class_yr)) +
+  geom_boxplot(position = position_dodge(width = 0.6),
+                width = 0.5,
+               outlier.shape = NA)+
+    geom_jitter(position = position_jitterdodge(
+    jitter.width = 0.1,
+    dodge.width = 0.6
+  ),
+  size = 1.5,
+  alpha = 0.7) +
+  facet_wrap(~ SPECIES) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL) +
+      theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )
+
+```
+
+### Species, size, & age class
+
+```{r}
+ggplot(data = subset(ac_sample.size, ac_sample.size$size == "Small"), aes(sample.yr, mean_RGR2 *100, color = age_class_yr
+                      )) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) + (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) - (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL)+
+        theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )+
+  ggtitle("Small")
+
+ggplot(data = subset(ac_sample.size, ac_sample.size$size == "Large"), aes(sample.yr, mean_RGR2 *100, color = age_class_yr
+                      )) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) + (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) - (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL)+
+        theme(
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14)
+  )+
+  ggtitle("Large")
+
+
+
+```
+
+# Site-level BA
+- this is meant to look more at the sum vs. tree levle basaal area
+
+```{r}
+sl.ba <- trees %>%
+  group_by(SITE, age_class_yr, sample.yr, sample.rd, SPECIES, Plot.Area.M2, sampled_plots_period) %>% 
+  summarize(site_ba = sum(BA), area = mean(Plot.Area.M2) * mean(sampled_plots_period), site_ba_m2 = site_ba/area, site_ba_ha = site_ba_m2/0.0001)
+
+sl.ba.sp <- sl.ba %>%
+  ungroup()%>%
+  group_by(SITE, sample.yr, sample.rd, age_class_yr) %>%
+  summarize(tot_ba = sum(site_ba_ha))
+
+sl.ba <- left_join(sl.ba, sl.ba.sp)
+  
+```
+
+
+## Visualize
+
+### Total
+```{r}
+sl.ba.tot.last <- sl.ba.sp%>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_"))%>%
+  filter(site_yr %in% first_last$site_yr) %>%  left_join(first_last)
+
+ggplot(sl.ba.tot.last, aes(tot_ba)) +
+  geom_histogram(fill = "lightgrey", color = "black") + 
+  theme_bw() +
+  xlab("Basal Area (m2/ha)")+
+  facet_wrap(~census) 
+
+ggplot(data = sl.ba.tot.last, aes(x = tot_ba, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+  geom_density(alpha = 0.5) + 
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ census, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    x = "Basal Area (m2/ha)",
+    y = "Density",
+    fill = "Age Class"
+  )
+
+```
+
+### By Species
+```{r}
+sl.ba.last <- sl.ba%>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_"))%>%
+  filter(site_yr %in% first_last$site_yr) %>%  left_join(first_last) %>%
+  filter(census == "last") %>%
+  filter(SPECIES != "PICEA")
+
+ggplot(sl.ba.last, aes(tot_ba)) +
+  geom_histogram(fill = "lightgrey", color = "black") + 
+  theme_bw() +
+  xlab("Basal Area (m2/ha)")+
+  facet_wrap(~SPECIES) 
+
+ggplot(data = sl.ba.last, aes(x = tot_ba, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+    geom_histogram(
+    position = "identity",
+    bins = 30,
+    alpha = 0.4
+  )+
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ SPECIES, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    x = "Basal Area (m2/ha)",
+    y = "Count",
+    fill = "Age Class"
+  )
+
+ggplot(data = sl.ba.last, aes(x = tot_ba, fill = age_class_yr)) +
+  # alpha controls transparency (0 = clear, 1 = opaque)
+    geom_density(
+    alpha = 0.4
+  )+
+  # facet_wrap creates a separate plot for each species
+  facet_wrap(~ SPECIES, scales = "free") + 
+  # Clean up the look
+  theme_minimal() +
+  labs(
+    x = "Basal Area (m2/ha)",
+    y = "Density",
+    fill = "Age Class"
+  )
+```
+
+
