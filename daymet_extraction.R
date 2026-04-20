@@ -53,12 +53,24 @@ datedf$yday <- lubridate::yday(datedf$date)
 weather <- left_join(output2, datedf, by = c("year", "yday" ))
 
 # Summarize to monthly, annual, and mean annual--------
-monthly <- weather %>% group_by(SITE, year, month) %>%
+# Replace BFY11 with BFY6 because it is close
+bad_site  <- "BFY11"
+good_site <- "BFY6"
+
+replacement <- weather %>%
+  filter(SITE == good_site) %>%
+  mutate(SITE = bad_site)
+
+weather.2 <- weather %>%
+  filter(SITE != bad_site) %>%
+  rbind(replacement)
+
+monthly <- weather.2 %>% group_by(SITE, year, month) %>%
   summarize(mean_tmax_degC = mean(tmax_degC),
             mean_tmin_degC = mean(tmin_degC),
             mean_tmean_degC = mean(tmean_degC),
             precip_mmmonth = sum(precip_mmday), 
-            mean_vp_pa = mean(vp_Pa))
+            mean_vp_pa = mean(vp_Pa)) 
 annual <- monthly %>% group_by(SITE, year) %>%
   summarize(mean_tmax_degC = mean(mean_tmax_degC),
             mean_tmin_degC = mean(mean_tmin_degC),
@@ -76,7 +88,7 @@ write.csv(monthly, file = "/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/RSN_Sit
 write.csv(annual, file = "/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/RSN_Site/daymet_annual_weather.csv" , row.names = FALSE)
 write.csv(meanannual, file = "/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/RSN_Site/daymet_meanannual_weather.csv" , row.names = FALSE)
 
-## BFY11 is weird! shoudl replace this with nearest other weather...
+## BFY11 is weird! shoudl replace this with nearest other weather...likely BFY6 seems pretty close!! 
 
 ## Make a few quick visualizations
 library(tidyverse)
@@ -86,6 +98,10 @@ ggplot(meanannual, aes(mean_tmean_degC, mean_precip_mmyear, color = lat))+
 
 ggplot(annual, aes(year, mean_tmean_degC, group = SITE)) +
   geom_line()
+
+ggplot(annual, aes(year, precip_mmyear, group = SITE)) +
+  geom_line()
+
 
 ggplot(annual, aes(year, mean_tmax_degC, group = SITE)) +
   geom_line()
