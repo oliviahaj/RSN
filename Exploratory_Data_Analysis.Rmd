@@ -41,7 +41,7 @@ dir.create(file.path("2026 Data", 'QAQC_Data', 'Updated'), showWarnings = F)
 
 # Identify desired files to download
 site_info_file <- "RSN_Master_Site.csv"
-qaqc_data <- "RSN_Inventory_QAQC_Final_2026-03-24.csv"
+qaqc_data <- "RSN_Inventory_QAQC_Final_2026-04-09.csv"
 
 # Download data files
 # site info
@@ -107,7 +107,7 @@ site_list <- unique(plot_ready$SITE)
 
 for (s in site_list) {
   p <- plot_ready %>%
-    filter(SITE == s) %>%
+    filter(SITE == "UP4C") %>%
     ggplot(aes(x = Year, y = Count, color = Status, group = Status)) +
     geom_line(size = 1.2) +
     geom_point(size = 3) +
@@ -119,6 +119,17 @@ for (s in site_list) {
   
   print(p) # This "prints" the plot as a new page in the PDF
 }
+
+
+
+ggplot(data = subset(plot_ready, plot_ready$SITE == "UP4C"), aes(x = Year, y = Count, color = Status, group = Status)) +
+    geom_line(size = 1.2) +
+    geom_point(size = 3) +
+    scale_color_manual(values = c("Live" = "#2ecc71", "Dead" = "#e74c3c", "Seedling" = "skyblue")) +
+    labs(title = paste("Tree Density Trends - Site:", s),
+         subtitle = "Comparing Live vs. Dead stems over time",
+         x = "Year", y = "Number of Trees") +
+    theme_minimal()
 
 ```
 

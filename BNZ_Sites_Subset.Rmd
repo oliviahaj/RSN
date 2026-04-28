@@ -1,7 +1,7 @@
 ---
-title: "RSN_Summary_0415"
+title: "BNZ Inventory Data"
 author: "OLH"
-date: "2026-04-15"
+date: "2026-04-22"
 output: 
   bookdown::html_document2:
     code_folding: hide
@@ -66,13 +66,6 @@ data <-  read.csv(file = file.path("2026 Data", 'QAQC_Data','Updated', qaqc_data
 
 site_year <- read.csv(file = file.path("2026 Data", 'Data_checks', 'site_years.csv'))
 
-# only FP or UP sites have more than 12 plots sampled
-site_yearcheck <- site_year %>%
-  group_by(SITE) %>%
-  summarize(max = max(n_plot), max2 = max(sampled_plots_period))
-
-site_year_RSN <- site_year %>%
-  filter(Year > 2003) 
 ```
 
 # Post QAQC Processing
@@ -80,24 +73,17 @@ site_year_RSN <- site_year %>%
 - Get rid of trees that are below 2.5 cm at DBH (Unless they shrink down)
 - Get rid of trees that are only ever NA
 - Remove one SALBEB obs
-
-##  Missing Trees?
-## Update Notes - April - wiht udpated data from Zach
-- 120 observation where a tree exceeds 2.5 and then dips back down
-- there are 10 trees that are only ever NA,and seems that first observation is always something along line of dbh not recorded, but it is marked as alive
-- when get rid of the trees that are below 2.5cm DBH, there are 1721 trees that are only NA (indicating likely that they died) and this amounts to 2715 NA observations - will want to remove these from the final datasets
-- 785 trees that seem to go missing; last measurement does not indicate that they are dead; but importantly this goes to 480 when excluding sites that burned during the record (so close to half go missing b/c they burned). Further, UP2A accounts for a lot of the missing trees, and there was a change in sampling effort in time. So excluding that site as well, it is about 250 trees that go missing. A few sites have around 20 in a year, but by and large, it is pretty low.
-- 906 trees that are dead and go missing without having ever being recorded as DOWN - goes down to 761 if excluding the burned sites and the UP2A with the weird samplign effort stuff. IMportantly all of those that fit into this category are from the UP or FP sites and by in large, in the earlier sampling periods. Likely reflects changes in methodology wiht the official establishment of the RSN network. 
-- now only 23 that seem to maybe come back to life and represent new growht
-- there are 9 that have the first observaiton listed as DA - 6 of these were ones showing new growth (i.e., "measured standing dead"), two are missing DBH (NA), and one has a note that marked 
+- SUBSET TO ONLY INCLUDE THE BNZ CREEK SITES
 
 
 ```{r}
 data.2 <- data %>%
+  filter(grepl("^(FP|UP)", SITE)) %>%
   # remove salbeb
   filter(SPECIES != "SALBEB") %>%
   # remove site FP1A
   filter(SITE != "FP1A")%>%
+  filter(SITE %!in% c("UP4A", "UP4B", "UP4C", "UP4D")) %>%
   # set up for removing small trees
   arrange(UniqueID, Year) %>% # Ensure data is in chronological order
   group_by(UniqueID) %>%
@@ -131,104 +117,20 @@ site_data <- left_join(site_year, site_info, by = "SITE")
 
 data.25.site <- left_join(data.25, site_data, by = c("SITE", "Year"))
 
-unique(data.25.site$canopy_type)
-data.25.site <- data.25.site %>%
-  filter(canopy_type != "")
-#unique(data.25.site2$SITE)
-
 ```
 
-# Summary of site data
+
+# Visualize the coverage of the data
+- i think get rid of the FP0 and UP4s
 
 ```{r}
-site_sample_rds <- data.25.site %>%
-  group_by(SITE, canopy_type, age_class) %>%
-  summarize(max = max(Year), min = min(Year), n=length(unique(sample.rd)))
-  
+ggplot(data = data.25.site, aes(SITE, Year, color = as.factor(sample.rd))) +
+  geom_point(size=2) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) 
 ```
 
-
-# Summary of inventory data
-
-## Sampling effort
-```{r}
-sites_remove <- c('FP4A', 'FP4B', 'FP4C', 'FP5A', 'FP5B', 'FP5D', "UP2A", "UP2B", "UP2C", "UP3C", "UP3A", "UP3B")
-mature.sample <- data.25.site %>%
-  filter(age_class == "Mature") %>%
-  filter(SITE %!in% sites_remove) %>%
-  filter(Year > 2010)
-  
-
-mature <- ggplot(data = mature.sample, aes(SITE, Year, color = as.factor(sample.rd))) +
-  geom_point(size=3) +
-  theme_bw()+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=14)) +
-  ggtitle("Mature Stands")
-mature
-
-inter.sample <- data.25.site %>%
-  filter(age_class == "Intermediate") %>%
-  filter(SITE %!in% sites_remove) %>%
-  filter(Year > 2007)
-  
-
-inter <- ggplot(data = inter.sample, aes(SITE, Year,color = as.factor(sample.rd))) + 
-  geom_point() +
-  theme_bw()+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
-  ggtitle("Intermediate Stands")
-inter
-
-
-young.sample <- data.25.site %>%
-  filter(age_class == "Young") %>%
-  filter(SITE %!in% sites_remove) %>%
-  filter(Year > 2007)
-young <- ggplot(data = young.sample, aes(SITE, Year,color = as.factor(sample.rd))) + 
-  geom_point() +
-  theme_bw()+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8)) +
-  ggtitle("Young Stands")
-young
-
-# graph of sites and age classes
-site.yr.sum <- site_year %>%
-  group_by(age_class_yr, sample.rd, sample.yr) %>%
-  summarize(num=n())
-
-ggplot(site.yr.sum, aes(sample.yr, num, group=age_class_yr, fill=age_class_yr))+
-  geom_col(position="dodge", color="black")+
-  theme_bw() +
-  ylab("Number of Sites")+
-  xlab("Sample Year") +
-  theme(
-    axis.title = element_text(size = 10), 
-    axis.text = element_text(size = 10)
-  )
-
-age.summary <- site_info %>%
-  group_by(ecoregion, age_class) %>%
-  summarize(n())
-str(site_data)
-
-data.25.sites <- data.25 %>%
-  select(SITE, Year)%>%
-  distinct() %>%
-  left_join(site_data)
-
-sample.rd.ct <- data.25.sites %>%
-  filter(sample.yr > 2010) %>%
-  filter(SITE %!in% sites_remove) %>%
-  group_by(sample.yr, age_class) %>%
-  summarize(n= n()) %>%
-  pivot_wider(names_from = sample.yr,  values_from = n) 
-  
-
-```
-
-## No of trees
-
-
+# No of trees
 ```{r}
 first_last <- data.25.site %>%
   group_by(SITE) %>%
@@ -239,25 +141,26 @@ first_last <- data.25.site %>%
   select(site_yr, census)
 
 data.summary <- data.25.site %>%
-  group_by(SITE, sample.yr, sample.rd, SPECIES, age_class_yr) %>%
+  mutate(class = str_sub(SITE, 1, 2)) %>%
+  group_by(SITE, sample.yr, sample.rd, SPECIES, class) %>%
   summarize(n = n(), n_alive = sum(DA), n_dead = n - n_alive, mean_DBH = mean(DBH, na.rm = T), se_DBH = (sd(DBH, na.rm = T))/(sqrt(n()))) %>%
   ungroup() %>%
   mutate(site_yr = paste(SITE, sample.rd, sep="_"))%>%
   filter(site_yr %in% first_last$site_yr) %>%  left_join(first_last)%>%
-  group_by(census, SPECIES, age_class_yr) %>%
+  group_by(census, SPECIES, class) %>%
   summarize(n_trees = sum(n), n_dead = sum(n_dead), n_site = n())
 
 wide_table <- data.summary %>%
-  mutate(age_class_yr = factor(age_class_yr, levels = c("Mature", "Intermediate", "Young"))) %>%
+  mutate(class = factor(class, levels = c("FP", "UP"))) %>%
   pivot_wider(
-    names_from = c(census, age_class_yr),
+    names_from = c(census, class),
     values_from = c(n_trees, n_dead, n_site)
-  )
+  ) %>%
+  select(-c(n_dead_first_UP, n_dead_first_FP))
 ```
 
-## DBH Summaries by age class and species
-- I think also want these by first and last census?
 
+# DBH Summary
 ```{r}
 dbh_summary <- data.25.site %>%
   mutate(site_yr = paste(SITE, sample.rd, sep="_"))%>%
@@ -299,79 +202,11 @@ last_dbh <- ggplot(data = subset(dbh_summary, dbh_summary$census == "last"), aes
 last_dbh
 ```
 
-
-# Outstanding matters
-- Aspect doesn’t seem to be right for everything; flat slopes all have an aspect of 0. I updated the ArcGIS extracted slopes to be this, but if the slope is 0 then it should be like -1 or something.
--	I think need to redo the moistures for topographic wetness; across the board, I might try to extract for consistency. 
--	Should make the inventory year at the end or the beginning. Probably the beginning for purposes of the graphs. 
-- need to see if i separate out the FP sites as a special case of young/intermediate
-- I have climate data from daymet (in part b/c already had the code for that), but likely will want a different climate/weather data source. But I do have daymet aggregated to monthly, annual, and mean annual scales. ClimateNA seems easy to extract with R.
-
-# Data Qs
-
-- Site data – might prefer to use extracted data, but just a spot check on aspect and elevation, there do seem to be some differences. Is it worth using the actual data and trying to get some of these other basic things for the FP and UP sites this summer?
-- Scale of analysis - plot vs. site & averaging approach?? Or tree level?
-- Depending on above, should there be min data reqs?
-- Unequal sample sizes through time and addition of all the new sizes; 2013 measurement not very meaningful for growth. Also corresponds broadly to a pretty consistent gap for most of the FP and UP sites. Really working with 3 sampling periods for majority of the sites. Three is totally in line with inventory studies and reasonable to have these two measurement periods to compare growth. 
-- Sites with no trees not really captured in the inventory but depending on the question, might want to make sure that these are represented. 
-
-# Research Qs
-
-- Collectively one things that seems unique about this dataset compared with inventory data is the variation in stand age and following fire disturbance. Other data on tree recruitment/seedlings could be an interesting element to bring in with it too. 
-
-- TREE LEVEL: How do growth and mortality compare between gymnosperm vs. angiosperm species across age classes and size distributions? Are there changes through time? With respect to species & size?
-** Are there key events (i.e., mortality spike, growth changes, etc.)?
-** Which species are showing greatest sensitivies?
-** these will likely be affected by stand level Qs below
-
-- STAND LEVEL: How does stand level BA/density/biomass change with time? Are there broader scale patterns in growth, recruitment, and mortality? Can we detect species interactions - competition, facilitation, etc.?
-** Are more trees dying? Mortality seems to be well-suited to address with inventory data. 
-** Competition (SDI; stand BA; others?) and relative growht rate?
-** Pathogen and pest incidence - this data is still a little messy. I don't think it would take long to clean up, but this could be important. 
-
-- DRIVERS: What is the relative important of different climate and topo-edaphic drivers with respect to growth and mortality? What about pest/pathogen disturbance? How do these drivers vary with respect to species/angiosperm vs. gymnosperms? What about stand age?
-
-- SUCCESSION: Relating patterns of growth/demographics to carbon storage, ecosystem development and how this varies across environmental gradients. 
-** see below...understory...?
-
-- UNDERSTORY: Do I even consider going here...Look at the relationship between diversity and productivity? (see Liang et al. Conservation biology. Effects of productivity on biodiversity in forest ecosystems across the US and Chinaa)
-** I have not looked at understory at all and I have no idea on its coverage, quality, etc. 
-
 # Tree level metrics
 - first calc the BA, RGR, etc at the tree level
 
 ```{r}
-#FUNCTIONS FOR TREE ALLOMETRY 
-#Above DBH trees used in Alexander et al. 2012, equations from Yarie et al. 2007, function based on species and DBH (cm) measurement; output in g/tree
-allom.dbh <- function(x, y) {
-  treebiomass <- numeric(length(x)) 
-  for (i in seq_along(x)) {
-    if (x[i] == "BETNEO") {
-      a <- 164.18
-      b <- 2.29
-    } else if (x[i] == "PICGLA") {
-      a <- 96.77
-      b <- 2.40
-    } else if (x[i] == "PICMAR") {
-      a <- 271.46
-      b <- 1.84
-    } else if (x[i] == "POPTRE") {
-      a <- 134.10
-      b <- 2.26
-    } else if (x[i] == "POPBAL") {
-      a <- 133.71
-      b <- 2.29
-    } else {
-      a <- NA
-      b <- NA
-    }
-    treebiomass[i] <- a * ((y[i])^b)
-  }
-  return(treebiomass) 
-}
-
-trees <- data.25.site %>%
-  filter(sample.rd == 7 | sample.rd == 9) %>%
+trees <- data.25 %>%
   filter(!is.na(DBH) & DA == 1) %>%
   group_by(UniqueID) %>%
   arrange(Year, .by_group = TRUE) %>%
@@ -384,145 +219,14 @@ trees <- data.25.site %>%
     Annual_Growth = (DBH - lag_DBH) / Year_diff,
     RGR = (log(DBH) - log(lag(DBH)))/Year_diff,
     RBA = (log(BA) - log(lag(BA)))/Year_diff,
-    Year_before = lag(Year), 
-    above_dbh_biomass = allom.dbh(SPECIES, DBH), 
-    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
-    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff, 
-    biomass_RGR_XW = ((above_dbh_biomass - lag(above_dbh_biomass))/lag(above_dbh_biomass))/Year_diff
+    Year_before = lag(Year)
   ) %>%
   #filter(!is.na(Annual_Growth)) %>%
-  #left_join(site_data, by = c("SITE", "Year")) %>%
-  #select(-c(TREE_raw:Flag_LastObs_SpeciesSpike)) %>%
-  mutate(site_yr = paste(SITE, sample.rd, sep="_"))
-
+  left_join(site_data, by = c("SITE", "Year")) %>%
+  select(-c(TREE_raw:Flag_LastObs_SpeciesSpike)) %>%
+  mutate(site_yr = paste(SITE, sample.rd, sep="_")) %>%
+  mutate(class = str_sub(SITE, 1, 2))
 ```
-
-## viz of tree level
-```{r}
-tree_level <- trees %>%
-  filter(!is.na(Annual_Growth)) %>%
-  filter(SPECIES %!in% c("LARLAR", "POPBAL")) %>%
-  mutate(age = as.numeric(age.mean)) #%>%
-  #filter(biomass_RGR > 0)
-
-# biomass change, RGR
-ggplot(tree_level, aes(age, biomass_RGR_XW))+
-  geom_point()+
-  theme_bw()+
-  xlim(0, 100)+
-  facet_wrap(~SPECIES)
-
-# biomass change - not relativize
-ggplot(tree_level, aes(age, biomass_change))+
-  geom_point()+
-  theme_bw()+
-  xlim(0, 100)+
-  facet_wrap(~SPECIES)
-
-# dbh growth
-ggplot(tree_level, aes(age, Annual_Growth))+
-  geom_point()+
-  theme_bw()+
-  xlim(0, 100)+
-  facet_wrap(~SPECIES)
-
-ggplot(tree_level, aes(age, RGR))+
-  geom_point()+
-  theme_bw()+
-  xlim(0, 100)+
-  facet_wrap(~SPECIES)
-
-```
-
-
-## Fit this to the site level
-```{r}
-site_RGR<- tree_level %>%
-  ungroup() %>%
-  group_by(SPECIES, SITE, age) %>%
-  summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
-            mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
-            mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()),
-            mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
-            mean_RBA = mean(RBA), median_RBA = median(RBA), se_RBA = sd(RBA)/sqrt(n()),
-            mean_bio_RGR = mean(biomass_RGR), median_bio_RG = median(biomass_RGR), se_bio_RG = sd(biomass_RGR)/sqrt(n()),
-            mean_bio_chng = mean(biomass_change), median_bio_chng = median(biomass_change), se_bio_chng = sd(biomass_change)/sqrt(n())
-            ) %>%
-  # get rid of obs with only 1 site
-  # filter(n_plot >1) %>%
-  # # requrie at least 5 trees
-  filter(n_tree >4) 
-
-ggplot(site_RGR, aes(age, mean_bio_RGR))+
-  geom_point()+
-  theme_bw()+
-  geom_smooth()+
-  xlim(15,100)+
-  facet_wrap(~SPECIES)
-
-ggplot(site_RGR, aes(age, mean_bio_chng))+
-  geom_point()+
-  theme_bw()+
-  geom_smooth()+
-  xlim(15,100)+
-  facet_wrap(~SPECIES)
-
-```
-
-
-## Tree but over 5 year increments where available - are there changes in the intermediate and young?
-```{r}
-trees.5 <- data.25.site %>%
-  filter(sample.rd > 6) %>%
-  filter(!is.na(DBH) & DA == 1) %>%
-  group_by(UniqueID) %>%
-  arrange(Year, .by_group = TRUE) %>%
-  mutate(
-    lag_DBH = lag(DBH),
-    # BA in m2
-    BA = 0.00007854 * (DBH)^2,
-    BA_diff = BA - lag(BA),
-    Year_diff = Year - lag(Year),
-    Annual_Growth = (DBH - lag_DBH) / Year_diff,
-    RGR = (log(DBH) - log(lag(DBH)))/Year_diff,
-    RBA = (log(BA) - log(lag(BA)))/Year_diff,
-    Year_before = lag(Year), 
-    above_dbh_biomass = allom.dbh(SPECIES, DBH), 
-    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
-    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff
-  ) %>%
-  #filter(!is.na(Annual_Growth)) %>%
-  #left_join(site_data, by = c("SITE", "Year")) %>%
-  #select(-c(TREE_raw:Flag_LastObs_SpeciesSpike)) %>%
-  mutate(site_yr = paste(SITE, sample.rd, sep="_"))
-
-```
-
-
-# Stand level changes in biomass? 
-
-
-# viz of these two different increments
-```{r}
-tree_level.5 <- trees.5 %>%
-  filter(!is.na(Annual_Growth)) %>%
-  filter(SPECIES %!in% c("LARLAR", "POPBAL")) %>%
-  mutate(age = as.numeric(age.mean)) %>%
-  filter(biomass_RGR > 0) %>%
-  filter(age_class != "Mature") %>%
-  mutate(age = as.numeric(age.mean),
-    age_update = ifelse(sample.rd == 8, age - 5, age))
-
-
-# biomass change, RGR
-ggplot(data = tree_level.5, aes(age_update, biomass_RGR, color = as.factor(sample.rd)))+
-  geom_point(alpha = 0.5)+
-  theme_bw()+
-  #xlim(0, 100)+
-  facet_wrap(~SPECIES+sample.rd)
-
-```
-
 
 ## some viz
 
@@ -569,14 +273,14 @@ site_growth <- trees %>%
   filter(!is.na(Annual_Growth)) %>%
   # get rid of outliers 
   #filter(Annual_Growth < 4 & Annual_Growth > -4) %>%
-  group_by(sample.rd, sample.yr, SPECIES, age_class_yr, SITE) %>%
+  group_by(sample.rd, sample.yr, SPECIES, age_class_yr, SITE, class) %>%
   summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
             mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
             mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()),
             mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
             mean_RBA = mean(RBA), median_RBA = median(RBA), se_RBA = sd(RBA)/sqrt(n())
             ) %>%
-  arrange(SPECIES, sample.rd, sample.yr, age_class_yr) %>%
+  arrange(SPECIES, sample.rd, sample.yr, age_class_yr, class) %>%
   # remove tree species wiht limited coverage
   filter(SPECIES %!in% c("PICEA", "LARLAR")) %>%
   # get rid of obs with only 1 site
@@ -590,14 +294,14 @@ site_growth_ts <- trees %>%
   # make a new column for if a tree is large or small
   mutate(size = ifelse(DBH>10, "Large", "Small")) %>%
   filter(!is.na(Annual_Growth)) %>%
-  group_by(sample.rd,sample.yr, SPECIES, age_class_yr, SITE, size) %>%
+  group_by(sample.rd,sample.yr, SPECIES, age_class_yr, SITE, size, class) %>%
   summarize(n_tree = n_distinct(UniqueID), n_plot = n_distinct(PLOT),
             mean_dbh = mean(DBH), median_dbh = median(DBH), se_dbh = sd(DBH)/sqrt(n()), max_dbh = max(DBH),
             mean_AG = mean(Annual_Growth), median_AG = median(Annual_Growth), se_AG = sd(Annual_Growth)/sqrt(n()),
             mean_RGR = mean(RGR), median_RGR = median(RGR), se_RGR = sd(RGR)/sqrt(n()),
             mean_RBA = mean(RBA), median_RBA = median(RBA), se_RBA = sd(RBA)/sqrt(n())
             ) %>%
-  arrange(SPECIES, sample.rd, sample.yr, age_class_yr, size) %>%
+  arrange(SPECIES, sample.rd, sample.yr, age_class_yr, size, class) %>%
 # remove tree species wiht limited coverage
   filter(SPECIES %!in% c("PICEA", "LARLAR")) %>%
   # get rid of obs with only 1 site
@@ -607,102 +311,13 @@ site_growth_ts <- trees %>%
 
 ```
 
-## Try to do some visualizaiton
-```{r}
-# join with actual age class
-unique(site_growth.meta$age.mean)
-str(traj.site)
-
-traj <- traj.site %>%
-  ungroup()%>%
-  filter(sample.rd == 9) %>%
-  select(c(SITE, canopy, biomass_msq_spruce,biomass_msq_decid)) 
-traj.change <- traj.site %>%
-  mutate(biomass_plot = (biomass_msq_spruce + biomass_msq_decid)/100, 
-         biomass_msq_spruce = biomass_msq_spruce/100, 
-         biomass_msq_decid = biomass_msq_decid/100) %>%
-  group_by(SITE) %>%
-  arrange(sample.yr, .by_group = TRUE) %>%
-  mutate(
-    biomass_change = biomass_plot - lag(biomass_plot), 
-        spruce_change = biomass_msq_spruce - lag(biomass_msq_spruce), 
-    decid_change = biomass_msq_decid - lag(biomass_msq_decid)) %>%
-  filter(sample.rd == 9) %>%
-    select(c(SITE, canopy, biomass_plot, biomass_change, decid_change, spruce_change)) 
-
-site_growth.meta <- site_growth %>%
-  left_join(site_info) %>%
-  filter(age.mean != "?") %>%
-  mutate(age.2 = as.numeric(case_when(
-    age.mean == "80+" ~ "85",
-    age.mean == "80++" ~ "85",
-    age.mean == "" ~ "8",
-    age.mean == "19-25" ~ "22",
-    TRUE ~ age.mean)
-  )) %>%
-  select(-c(age.mean, traj)) %>%
-  filter(SPECIES != "POPBAL") %>%
-  left_join(traj.change)
-
-ggplot(site_growth.meta, aes(biomass_plot, mean_AG, color = mean_dbh)) +
-  geom_point(size =2) +
-  # geom_errorbar(aes(ymin = mean_AG - se_AG,
-  #                   ymax = mean_AG + se_AG),
-  #               width = 0.2)+
-  theme_bw()+
-  #xlim(0, 100)+
-  facet_wrap(~canopy)
-
-ggplot(site_growth.meta, aes(age.2, decid_change)) +
-  geom_point(size =2) +
-  # geom_errorbar(aes(ymin = mean_AG - se_AG,
-  #                   ymax = mean_AG + se_AG),
-  #               width = 0.2)+
-  theme_bw()+
-  #xlim(0, 100)+
-  facet_wrap(~canopy)
-
-```
-
-
-# Long term climate sensitivitiy
-```{r}
-clim <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/RSN_Site/daymet_meanannual_weather.csv')
-
-site_growth.meta <- left_join(site_growth.meta, clim)
-str(clim)
-
-ggplot(site_growth.meta, aes(mean_tmax_degC, mean_precip_mmyear,color = age_class_yr)) +
-  geom_point(alpha = 0.4) +
-  theme_bw()
-
-ggplot(site_growth.meta, aes(age.2, mean_RGR, color = mean_precip_mmyear)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = mean_RGR - se_RGR,
-                    ymax = mean_RGR + se_RGR),
-                width = 0.2)+
-  theme_bw()+
-  facet_wrap(~SPECIES, scales="free")
-
-ggplot(site_growth.meta, aes(age.2, mean_RGR, color = mean_tmax_degC)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = mean_RGR - se_RGR,
-                    ymax = mean_RGR + se_RGR),
-                width = 0.2)+
-  theme_bw()+
-  facet_wrap(~SPECIES, scales="free")
-
-```
-
-
-
 # Aggregate at age class, species level, etc.
 
 ## By age class, species, and size
 ```{r}
 ac_sample <-  site_growth%>%
   ungroup()%>%
-  group_by(sample.yr, SPECIES, age_class_yr) %>%
+  group_by(sample.yr, SPECIES, age_class_yr, class) %>%
   summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
             mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
             mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
@@ -714,7 +329,7 @@ ac_sample <-  site_growth%>%
 
 ac_sample.size <- site_growth_ts %>%
     ungroup()%>%
-  group_by(sample.yr, SPECIES, age_class_yr, size) %>%
+  group_by(sample.yr, SPECIES, age_class_yr, size, class) %>%
   summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
             mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
             mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
@@ -730,7 +345,7 @@ ac_sample.size <- site_growth_ts %>%
 
 sp_sample <-  site_growth%>%
   ungroup()%>%
-  group_by(sample.yr, SPECIES) %>%
+  group_by(sample.yr, SPECIES,class) %>%
   summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
             mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
             mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
@@ -742,7 +357,7 @@ sp_sample <-  site_growth%>%
 
 sp_sample.size <- site_growth_ts %>%
     ungroup()%>%
-  group_by(sample.yr, SPECIES, size) %>%
+  group_by(sample.yr, SPECIES, size, class) %>%
   summarize(n_tree2 = sum(n_tree), n_plot2 = sum(n_plot), n_site = n_distinct(SITE), 
             mean_dbh2 = mean(mean_dbh), se_dbh = sd(mean_dbh)/sqrt(n()), max_dbh = max(mean_dbh),
             mean_AG2 = mean(mean_AG), se_AG = sd(mean_AG)/sqrt(n()), 
@@ -811,6 +426,102 @@ ggplot(data =  subset(site_growth, site_growth$sample.yr %in% c(2018, 2024)), ae
   )
 
 ```
+
+### Species adn Position
+
+```{r}
+ggplot(sp_sample.size, aes(sample.yr, mean_RGR2 *100,
+                      color = class)) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) + (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RGR2*100) - (se_RGR*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "FP" = "#56B4E9",
+    "UP" = "orange"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL)
+
+ggplot(sp_sample.size, aes(sample.yr, mean_RBA2 *100,
+                      color = class)) +
+  geom_step(linewidth = 1, direction = "hv") +
+  geom_step(aes(y = (mean_RBA2*100) + (se_RBA*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+  geom_step(aes(y = (mean_RBA2*100) - (se_RBA*100)),
+            linetype = "dashed",
+            linewidth = 0.6,
+            alpha = 0.7,
+            direction = "hv") +
+
+  geom_point(size = 1.5) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "FP" = "#56B4E9",
+    "UP" = "orange"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "BA Growth (%)", color = NULL) +
+    theme(
+    axis.title = element_text(size = 10), 
+    axis.text = element_text(size = 10)
+  )
+
+# look at only last two samplign periods
+
+ggplot(data =  subset(site_growth_ts, site_growth_ts$sample.yr %in% c(2018, 2024)), aes(as.factor(sample.yr), mean_RGR *100,
+                      color = size)) +
+   geom_boxplot(position = position_dodge(width = 0.6),
+                width = 0.5,
+               outlier.shape = NA)+
+    geom_jitter(position = position_jitterdodge(
+    jitter.width = 0.1,
+    dodge.width = 0.6
+  ),
+  size = 1.5,
+  alpha = 0.7) +
+  facet_wrap(~ SPECIES) +
+  scale_color_manual(values = c(
+    "Small" = "#56B4E9",
+    "Large" = "orange"
+  )) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Inventory year", y = "Relative Growth Rate (%)", color = NULL) +
+      theme(
+    axis.title = element_text(size = 10), 
+    axis.text = element_text(size = 10)
+  )
+
+
+```
+
+
+
 
 
 ### Species adn Size
@@ -1127,18 +838,11 @@ ggplot(data = sl.ba.last, aes(x = tot_ba, fill = age_class_yr)) +
 ## Density 
 ```{r}
 dens.plot.sp <- data.25.site %>%
-  filter(sample.rd == 7 | sample.rd == 9) %>%
   group_by(SITE, PLOT, Plot.Area.M2,sample.rd, sample.yr, age_class_yr, sampled_plots_period, SPECIES, DA) %>%
   summarize(n.trees = n()) %>%
-  mutate(trees_m2 = n.trees/Plot.Area.M2) %>%
-  filter(DA == 1) %>%
-  filter(SITE == "MDI1") %>%
-  ungroup() %>%
-  group_by(SITE, sample.yr, SPECIES) %>%
-  summarize(n= n())
+  mutate(trees_m2 = n.trees/Plot.Area.M2)
 
 dens.plot <- data.25.site %>%
-  filter(sample.rd == 7 | sample.rd == 9) %>%
   group_by(SITE, PLOT, Plot.Area.M2,sample.rd, sample.yr, age_class_yr, sampled_plots_period, DA) %>%
   summarize(n.trees = n()) %>%
   mutate(trees_m2 = n.trees/Plot.Area.M2)
@@ -1177,8 +881,6 @@ ggplot(dens.site.sp, aes(sample.yr, site_dens_m2, color = age_class_yr))+
 ```{r}
 site_mortality <- data.25.site %>%
   ungroup() %>%
-  filter(SITE %!in%sites_remove) %>%
-  filter(sample.rd == 7 | sample.rd == 9) %>%
   arrange(UniqueID, Year) %>%
   group_by(UniqueID) %>%
   # We look for the first index (row number) where DA is 0
@@ -1192,40 +894,13 @@ site_mortality <- data.25.site %>%
   summarize(num_dead = n(), num_dead_pp = num_dead/mean(sampled_plots_period),dead_dbh = mean(DBH), num_dead_m2 = num_dead_pp/mean(Plot.Area.M2)) %>%
   ungroup() 
 
-dead.trees <- data.25.site %>%
-  ungroup() %>%
-  filter(SITE %!in%sites_remove) %>%
-  filter(sample.rd == 7 | sample.rd == 9) %>%
-  arrange(UniqueID, Year) %>%
-  group_by(UniqueID) %>%
-  # We look for the first index (row number) where DA is 0
-  # but only if that index is NOT 1.
-  filter(which(DA == 0)[1] > 1) %>%
-  # Now that we've narrowed it to the right trees, 
-  # we isolate that specific first-death row.
-  slice(which(DA == 0)[1]) 
-
-#Understanding High PicMAR death and their size
-
-trees_to_die <- data.25.site %>%
-  filter(sample.rd == 7) %>%
-  #filter(UniqueID %in% dead.trees$UniqueID) %>%
-  filter(SITE %in% c("DDM1", "GRM2","MDI1", "MDI2", "WCM3")) %>%
-  filter(SPECIES == "PICMAR") %>%
-  mutate(dies = ifelse(UniqueID %in% dead.trees$UniqueID, "dies", "lives"))
-
-
-ggplot(trees_to_die, aes(DBH, fill = dies)) +
-  geom_histogram(stat = "bin", position = "identity", alpha = 0.5)+
-  facet_wrap(~SITE, scales = "free")
-
 
 # Graph the mortality
-ggplot(data = subset(site_mortality, site_mortality$sample.yr==2024), aes(age_class_yr, num_dead, color = age_class_yr))+
-  geom_point(alpha=0.7, size = 3)+
+ggplot(site_mortality, aes(sample.yr, num_dead_m2, color = age_class_yr))+
+  geom_jitter(alpha=0.4, size = 1)+
   theme_bw()+
-      theme(axis.title = element_text(size = 14), 
-    axis.text = element_text(size = 14))+
+      theme(axis.title = element_text(size = 10), 
+    axis.text = element_text(size = 10))+
   facet_wrap(~SPECIES, scales = "free")
 
 
@@ -1299,79 +974,6 @@ ggplot(small_mortality, aes(sample.yr, num_dead_m2, color = age_class_yr))+
   facet_wrap(~SPECIES, scales = "free")
 ```
 
-# Mortality adn density
-```{r}
-density <- data.25.site %>%
-  filter(sample.rd == 9) %>%
-  group_by(SITE, age_class_yr, sampled_plots_period, SPECIES, DA, age.mean) %>%
-  summarize(n.trees = n()) %>%
-  ungroup()%>%
-  mutate_all(~replace(., is.na(.), 0)) %>%
-  filter(age.mean != "")%>%
-  mutate(age.2 = is.numeric(age.mean))
-
-unique(density$age.mean)
-
-density_wide <- density %>%
-  pivot_wider(names_from = DA, values_from = n.trees) %>%
-  rename(Dead = "0", Alive = "1") %>%
-  ungroup()%>%
-  mutate_all(~replace(., is.na(.), 0))  %>%
-  mutate(num_trees = Dead + Alive)
-
-dens_combo <- left_join(density, density_wide)
-
-site_level_dens <- density_wide %>%
-  group_by(SITE, age_class_yr) %>%
-  summarize(site_num_dead = sum(Dead), site_num_alive= sum(Alive)) %>%
-  ungroup()%>%
-  mutate_all(~replace(., is.na(.), 0)) %>%
-  mutate(site_num_trees = site_num_dead + site_num_alive) 
-
-dens_data <- left_join(density, site_level_dens)
-dens_data2 <- dens_data %>%
-  filter(SPECIES %in% c("BETNEO", "PICGLA", "PICMAR", "POPTRE")) %>%
-  mutate(prop_dead_site = site_num_dead/site_num_trees)
-
-checkna <- dens_data2 %>%
-  filter(is.na(age.2))
-
-dens_data3 <- dens_combo %>%
-  filter(SPECIES %in% c("BETNEO", "PICGLA", "PICMAR", "POPTRE")) %>%
-  mutate(prop_dead = Dead/num_trees)
-
-ggplot(dens_data2, aes(site_num_trees, n.trees, color = as.factor(DA), group = SITE))+
-  geom_point(alpha = 0.5)+
-  geom_line(color = "grey")+
-  facet_wrap(~SPECIES, scales = "free")+
-  theme_bw()
-
-ggplot(dens_data2, aes(site_num_trees, prop_dead_site, color = age_class_yr))+
-  geom_point(alpha = 0.5)+
-  theme_bw()
-
-ggplot(dens_data2, aes(age.2, prop_dead_site))+
-  geom_point(alpha = 0.5)+
-  theme_bw()
-
-ggplot(dens_data2, aes(age.2, prop_dead_site))+
-  geom_point(alpha = 0.5)+
-  theme_bw()
-
-ggplot(dens_data3, aes(num_trees, n.trees, color = as.factor(DA), group = SITE))+
-  geom_point(alpha = 0.5)+
-  geom_line(color = "grey")+
-  facet_wrap(~SPECIES, scales = "free")+
-  theme_bw()
-
-ggplot(dens_data3, aes(num_trees,prop_dead, color = age_class_yr))+
-  geom_point(alpha = 0.5)+
-  facet_wrap(~SPECIES, scales = "free")+
-  theme_bw()
-
-```
-
-
 ## Recruitment
 
 ```{r}
@@ -1379,36 +981,24 @@ ggplot(dens_data3, aes(num_trees,prop_dead, color = age_class_yr))+
 site.recruitment <- data.25.site %>%
   group_by(UniqueID) %>%
   arrange(sample.yr) %>%
-  # mutate(first_year = min(sample.yr, na.rm = TRUE)) %>%
-  # filter(sample.yr > first_year) %>%
+  mutate(first_year = min(sample.yr, na.rm = TRUE)) %>%
+  filter(sample.yr > first_year) %>%
   slice_min(sample.yr, n = 1) %>%   # first recruitment year only
-  ungroup() %>%
-  filter(sample.yr ==2024)
+  ungroup()
 
 site.recruit <- site.recruitment %>%
-  group_by(sample.yr, SITE, SPECIES, Plot.Area.M2, sampled_plots_period, age_class_yr, canopy_type, age.mean) %>%
-  summarize(num_new = n(), num_new_pp = num_new/mean(sampled_plots_period), num_new_m2 = num_new_pp/mean(Plot.Area.M2), mean_dbh = mean(DBH)) %>%
+  group_by(sample.yr, SITE, SPECIES, Plot.Area.M2, sampled_plots_period, age_class_yr) %>%
+  summarize(num_new = n(), num_new_pp = num_new/mean(sampled_plots_period), num_new_m2 = num_new_pp/mean(Plot.Area.M2)) %>%
   ungroup() %>%
-  filter(SPECIES %!in% c('LARLAR', 'PICEA')) %>%
-  filter(sample.yr == 2024) %>%
-  mutate(age = ifelse(age.mean == "",  8, age.mean), 
-         age = as.numeric(age))
+  filter(SPECIES %!in% c('LARLAR', 'PICEA'))
 
 
-ggplot(site.recruit, aes(age, num_new, color = SPECIES))+
-  geom_jitter(alpha=0.6, size =2)+
+ggplot(site.recruit, aes(sample.yr, num_new_m2, color = age_class_yr))+
+  geom_jitter(alpha=0.4, size =1)+
   theme_bw()+      theme(axis.title = element_text(size = 10), 
     axis.text = element_text(size = 10))+
   ggtitle("Tree Recruitment")+
-  facet_wrap(~canopy_type, scales = "free")
-
-ggplot(site.recruit, aes(age, mean_dbh, color = SPECIES))+
-  geom_jitter(alpha=0.6, size =2)+
-  theme_bw()+      theme(axis.title = element_text(size = 10), 
-    axis.text = element_text(size = 10))+
-  ggtitle("Tree Recruitment")+
-  facet_wrap(~canopy_type, scales = "free")
-
+  facet_wrap(~SPECIES, scales = "free")
 ```
 
 # Pest/Pathogens
@@ -1431,4 +1021,5 @@ ggplot(data = subset(damage, damage$damaged == "YES"), aes(SPECIES, prop_dam, co
   facet_wrap(~SPECIES, scales = "free")
 
 ```
+
 
