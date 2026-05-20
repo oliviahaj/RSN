@@ -152,12 +152,17 @@ site_sample_rds <- data.25.site %>%
 
 ## Sampling effort
 ```{r}
-sites_remove <- c('FP4A', 'FP4B', 'FP4C', 'FP5A', 'FP5B', 'FP5D', "UP2A", "UP2B", "UP2C", "UP3C", "UP3A", "UP3B")
+sites_remove <- c('FP4A', 'FP4B', 'FP4C', 'FP5B',  "UP2A", "UP2B", "UP2C", "UP3C", "UP3A", "UP3B")
 mature.sample <- data.25.site %>%
   filter(age_class == "Mature") %>%
   filter(SITE %!in% sites_remove) %>%
   filter(Year > 2010)
   
+mature.yrs <- mature.sample %>%
+  select(SITE, Year) %>%
+  unique() %>%
+  filter(Year >2015) %>%
+  filter(Year < 2020)
 
 mature <- ggplot(data = mature.sample, aes(SITE, Year, color = as.factor(sample.rd))) +
   geom_point(size=3) +
