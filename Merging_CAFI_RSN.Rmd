@@ -1,0 +1,484 @@
+---
+title: "Merging_RSN_CAFI"
+author: "OLH"
+date: "2026-05-21"
+output: 
+  bookdown::html_document2:
+    code_folding: hide
+    toc: TRUE
+    toc_depth: 4
+    toc_float: TRUE
+    collapsed: TRUE
+    theme: spacelab
+    fig_caption: TRUE
+    number_sections: FALSE
+---
+# Setup
+<style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.width=5,  fig.height=3.5, fig.align="center")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+
+# Read in Data
+```{r}
+## RSN Datasets
+rsn <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/QAQC_Data/Updated/RSN_Inventory_QAQC_Final_2026-04-09.csv')
+
+site.yrs <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_years.csv')
+
+## CAFI Datasets
+cafi <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/CAFI_Inventory_QAQC_Final.csv")
+cafi.ages <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/cafi_loc_deciduous.csv")
+
+## Metadata
+pest <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/Pest_merge_check.csv')
+
+```
+
+# RSN Processing
+
+## Data cleaning
+- remove sites not in the RSN?
+- Get rid of trees that are below 2.5 cm at DBH (Unless they shrink down)
+- Get rid of trees that are only ever NA
+- Remove one SALBEB obs
+
+```{r}
+# sites not in the RSN
+non_rsn_sites <- c("FP0A", "FP0B","FP0C", "FP1A","FP1B","FP1C", "FP2A", "FP2B","FP2C",   "FP3A","FP3B","FP3C",'FP4A', 'FP4B', 'FP4C', 'FP5B', "UP1A", "UP1B","UP1C","UP2A", "UP2B", "UP2C", "UP3C", "UP3A", "UP3B")
+
+# initial updates to RSN dataset
+rsn.2 <- rsn %>%
+  # remove salbeb
+  filter(SPECIES != "SALBEB") %>%
+  # remove sites not in the RSN
+  filter(SITE %!in% non_rsn_sites)%>%
+  # set up for removing small trees
+  arrange(UniqueID, Year) %>% # Ensure data is in chronological order
+  group_by(UniqueID) %>%
+  # keep NA DBH, DBH > 2.5, or if the DBH exceeds 2.5, it will keep subsequent observatoins
+  # this code above removes 4693 observations
+  filter(is.na(DBH) | DBH >= 2.49 | cumany(DBH >= 2.49)) %>%
+  ungroup()
+
+# see which trees only have an NA - this is after the seedlings have been removed, so in many cases these had an intiial measurement that was NA and corresponded to somehting like 0.7cm
+na.trees <- rsn.2%>%
+  group_by(UniqueID) %>%
+  filter(all(is.na(DBH))) #%>%
+  #distinct(UniqueID)
+
+# remove the na trees only
+rsn.3 <- rsn.2 %>%
+  filter(UniqueID %!in% na.trees$UniqueID) %>%
+  # get rid of sampling rounds before the formal RSN initiation
+  filter(Year> 2007)
+
+```
+
+## How many trees start off above 5
+- There are a lot of trees over 5cm for first DBH - 624 trees i think and it is mostly FP5A and FP5D (430 is these two)
+-I think for FP5A and FP5D, I think that we missed a sampling interval.... so these tries might have existed 
+- taking care of that, i think its really 213 that are concerning in terms of over 5; really only over a handful that are over 6 - seem like about 200 trees in total and then only 73 if looking at 6cm
+
+```{r}
+early.trees <- rsn.3 %>%
+  filter(Year < 2017)
+
+late <- rsn.3 %>%
+  filter(UniqueID %!in% early.trees$UniqueID) %>%
+  filter(DBH > 5) #%>%
+  # select(UniqueID) %>%
+  # distinct()
+
+ggplot(late, aes(DBH))+
+  geom_histogram()+
+  facet_wrap(~SPECIES, scales = "free")
+
+# going to see if these late ones are measured twice?
+late2 <- rsn.3 %>%
+  filter(UniqueID %in% late$UniqueID) %>%
+  filter(DBH < 6)
+
+late3 <- rsn.3 %>%
+  filter(UniqueID %in% late$UniqueID) %>%
+  filter(UniqueID %!in% late2$UniqueID) %>%
+  group_by(SITE) %>%
+  summarize(n=n())
+
+# Can run or not if wanting to get rid of these observations; right now its 73 trees that show up greater than 6 in the first obs round
+# rsn.4 <- rsn.3 %>%
+#   filter(UniqueID %!in% late3$UniqueID)
+#   
+
+```
+
+## Clean up the damage and severity columsn - only done in the final sampling period
+```{r}
+unique(rsn.3$DAMAGE)
+unique(rsn.3$LOCATION)
+unique(rsn.3$SEVERITY)
+
+# this code was done to identify all of the unique pests that were a thing
+# unique.pests <- rsn.3 %>%
+#     mutate(DAMAGE2 = case_when(
+#     DAMAGE == "Girdled and Black rust" ~ "Girdled, Black rust", 
+#     DAMAGE == "Leafroller Leafminer" ~ "Leafroller, Leafminer",
+#     TRUE ~ DAMAGE
+#   )) %>%
+#   select(DAMAGE, DAMAGE2) %>%
+#   distinct() %>%
+#   mutate(DAMAGE_type = strsplit(DAMAGE, ",\\s*")) %>% 
+#   unnest_wider(DAMAGE_type, names_sep = "_")
+
+# prep teh pest dataset for RSN analysis
+pests.2 <- pest %>%
+  filter(Network == "RSN") 
+
+rsn.4 <- rsn.3 %>%
+  # there are a few categories that need to be fixed so that they separate 
+  mutate(DAMAGE = case_when(
+    DAMAGE == "Girdled and Black rust" ~ "Girdled, Black rust", 
+    DAMAGE == "Leafroller Leafminer" ~ "Leafroller, Leafminer",
+    TRUE ~ DAMAGE
+  )) %>%
+  mutate(DAMAGED = ifelse(DAMAGE == "", 0, 1),
+    DAMAGE_type = strsplit(DAMAGE, ",\\s*")) %>% 
+  unnest_wider(DAMAGE_type, names_sep = "_")%>%
+  # Step 1 - needing to clean up the names based on the pests lookup table
+  left_join(pests.2, by = c("DAMAGE_type_1" = "Common_Name")) %>%
+  mutate(DAMAGE_1 = Damage) %>%
+  select(-c(Network, Code, Damage)) %>%
+  left_join(pests.2, by = c("DAMAGE_type_2" = "Common_Name")) %>%
+  mutate(DAMAGE_2 = Damage) %>%
+  select(-c(Network, Code, Damage)) %>%
+  left_join(pests.2, by = c("DAMAGE_type_3" = "Common_Name")) %>%
+  mutate(DAMAGE_3 = Damage) %>%
+  select(-c(Network, Code, Damage, DAMAGE_type_1, DAMAGE_type_2, DAMAGE_type_3))%>%
+  # Now will work on the severity
+  mutate(SEVERITY = case_when(
+    SEVERITY == "1.1" ~ "1,1",
+    TRUE ~ SEVERITY
+  )) %>%
+  mutate(DAMAGE_severity = strsplit(SEVERITY, ",\\s*")) %>% 
+  unnest_wider(DAMAGE_severity, names_sep = "_") %>%
+  mutate(DAMAGE_severity_1 = case_when(
+    DAMAGE_severity_1 == "4 (36-67%)" ~ "4",
+    DAMAGE_severity_1 == "3 (16-35%)" ~ "3",
+    DAMAGE_severity_1 == "1 (Trace to 5%)" ~ "1",
+    DAMAGE_severity_1 == "5 (68-100%)" ~ "5",
+    DAMAGE_severity_1 == "2 (6-15%)"  ~ "2",
+    DAMAGE_severity_1 == "very severe" ~ "5",
+    DAMAGE_severity_1 == "mo" ~ "3",
+    DAMAGE_severity_1 == "mild" ~ "1",
+    DAMAGE_severity_1 == "mi" ~ "1",
+    DAMAGE_severity_1 == "12" ~ "2",
+    TRUE ~ DAMAGE_severity_1
+  ))%>%
+  # Update damage to match the 1-4 scale of CAFI
+  mutate(DAMSEV1= case_when(
+    DAMAGE_severity_1 == "3" ~ "2", 
+    DAMAGE_severity_1 == "4" ~ "3", 
+    DAMAGE_severity_1 == "5" ~ "4",
+    TRUE ~ DAMAGE_severity_1
+  ), 
+  DAMSEV2 = case_when(
+    DAMAGE_severity_2 == "3" ~ "2", 
+    DAMAGE_severity_2 == "4" ~ "3", 
+    DAMAGE_severity_2 == "5" ~ "4",
+    TRUE ~ DAMAGE_severity_2
+  ), 
+  DAMSEV3= case_when(
+    DAMAGE_severity_3 == "3" ~ "2", 
+    DAMAGE_severity_3 == "4" ~ "3", 
+    DAMAGE_severity_3 == "5" ~ "4",
+    TRUE ~ DAMAGE_severity_3
+  )
+  ) %>%
+  # Calculate max severity
+  mutate(max_damage =pmax(DAMSEV1,DAMSEV2,DAMSEV3)) 
+str(rsn.4)
+```
+
+
+## Merge this with the site years
+```{r}
+rsn.5 <- rsn.4 %>%
+  left_join(site.yrs)
+```
+
+## Reduce to the necessary columns
+- here is what i want: UniqueID, Year, SUBPLOT, Cycle (?), SITE, TREE, SPECIES, DBH, DA, TOP(?), Lean(?), Bowed(?), DOWN (?), Plot_area, Plot_size, no_plots, damage, damage_loc, damage_severity, QAQC_ACTION
+
+```{r}
+str(rsn.5)
+rsn.merge <- rsn.5 %>%
+  select(-c(LOCATION, TREE_raw, SPECIES_raw, DBH_raw, DA_raw, STATUS, NOTES, OfficeNotes, Noted, ReplaceID, Species.count, Species_Max_Growth, Species_Max_Growth_Error, First_Decimal_Error_High, First_Decimal_Error_Low, Last_Year, Last_Decimal_Error_High, New.Growth, Anomaly, Flag_LastObs_SpeciesSpike, sampled_plots_period, notes_samplingarea, X, DAMAGE_severity_3, DAMAGE_severity_2, DAMAGE_severity_1))%>%
+  # RENAME THE PLOT AND SUPLOT FOR EASE
+  rename(SUBP = "PLOT",
+    PLOT = "SITE")
+
+#str(rsn.merge)
+```
+
+
+# Clean Up CAFI
+- there is a damage code with broken top/dead top, etc. 
+- first I need to update so that we're just working with teh geo sites that I want to - reduce the dataset to the interior alaska sites
+- also want to make sure a site has more than 1 measurement so that can look at change
+```{r}
+str(cafi)
+locs <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/452_CAFI_LOCATION_FUZZED_v20241220.csv")
+str(locs)
+locs.avg <- locs %>%
+  #a weird value that messes up the whole 1098 plots
+  filter(OID_ !=290)%>%
+  # plot1180 has lat and long backwards on one subplot
+  mutate(LAT = ifelse(OID_ == 534, LONG, LAT),
+         LONG = ifelse(OID_ == 534, -149.2414022, LONG))%>%
+  group_by(PLOT) %>%
+  summarize(lat = mean(LAT), long= mean(LONG), n = n()) %>%
+  # get rid of a plots that don't have teh right lat/long - not sure what's going on with these
+  # check these plots in the data - were they discontinued?
+  filter(PLOT %!in% c(1206, 1040, 1026))
+
+locs.interior <- locs.avg %>%
+  filter(lat > 62.69353) %>%
+  filter(!(lat < 63.15401 & long < -143.7223))
+
+library(leaflet)
+leaflet(locs.interior) %>%
+  addProviderTiles("Esri.WorldTopoMap") %>%
+  addCircleMarkers(
+    lng = ~long,
+    lat = ~lat,
+    popup = ~as.character(PLOT)
+  )
+
+# looks like there are 78 plots in interior alaska 
+# now filter the CAFI dataset to just this 
+cafi.2 <- cafi %>%
+  filter(PLOT %in% locs.interior$PLOT)
+
+unique(cafi.2$PLOT)
+
+# see if there are sites that only have one measurement in this period
+cafi.yr <- cafi.2 %>%
+  select(PLOT, INVYR) %>%
+  distinct() %>%
+  group_by(PLOT) %>%
+  summarize(n= n()) %>%
+  filter(n < 2)
+# 1138 and 1140 and 1142 only have one, going to remove these
+
+cafi.3 <- cafi.2 %>%
+  filter(PLOT %!in% cafi.yr$PLOT)
+```
+
+# Get rid of the diameters for consistency
+- this takes care of the Status code such that is only alive or dead
+```{r}
+cafi.4 <- cafi.3 %>%
+  filter(DIA > 3.8)
+
+```
+
+
+```{r}
+# Want to understand waht the DIACHECK looks like and meanings
+# CHECK THE ATTACK TYPE OF THINGS
+
+cafi.checks <- cafi.4 %>%
+  group_by(PLOT) %>%
+  summarize(n= n(), subs = length(unique(SUBP)))
+
+# clean up pest file
+pest.cafi <- pest %>%
+  filter(Network == "CAFI")
+
+# Get rid of unnecessary columns, rename some
+# Then need to clean up the damage codes
+# Then need to add additional binary columns etc that are existent in the dataset
+cafi.5 <- cafi.4 %>%
+  # Remove some columns off the bat that won't go along with the RSN network
+  select(-c(SPCD, AZIMUTH, DIST, PREV_STAT, Pre.Status, RECONCILECD, Reconciled_Meaning, PREVDIA, DIACHECK, DIACHECK_Meaning, PREVHT, ACTUALHT, HT, HTCD, HTCD_Meaning, CRHT, CR, PREV_CCLCD, PREV_CCLCD_Meaning, CULL,ATTACKPRG, ATTACK, HTDMP.Raw, Species.Raw, New.Growth, Anomaly, TREE_ID )) %>%
+  # Update the Species
+  mutate(SPECIES = case_when(
+    Species == "Alaska Paper Birch" ~ "BETNEO",
+    Species == "Black Spruce" ~ "PICMAR",
+    Species == "Balsam Poplar" ~ "POPBAL",
+    Species == "White Spruce" ~ "PICGLA",
+    Species == "Aspen" ~ "POPTRE",
+    Species == "Tamarack" ~ "LARLAR",
+    TRUE ~ Species
+  )) %>%
+  rename(DBH = "DIA"
+  ) %>%
+  mutate(Plot.Area.M2 = 405, 
+         Plot_Size = "20.12x20.12") %>%
+  # fix the status code adn make it dead/alive
+  mutate(DA = ifelse(STATUSCD_Meaning == "live", 1, 0), 
+         DOWN = ifelse(STANDING_DEAD_CD == 0, 0, 1))%>%
+  # drop the old codes
+  select(-c(STATUSCD, STATUSCD_Meaning, Species, CCLCD, CCLCD_Meaning,ATTACK_Meaning, ATTACKPRG_Meaning, STANDING_DEAD_CD, STANDING_DEAD_CD_Meaning,DECAYCD,AGENTCD, AGENTCD_Meaning, MORTYR, NOTE, OFFICE, PREV_STAT_Meaning)) %>%
+  # Going to work on the Damage stuff now....
+  left_join(pest.cafi, by = join_by(DAMAGE_AGENT_CD1 == Code)) %>%
+  rename(DAMAGE_1 = "Damage") %>%
+    select(-c(Network, Common_Name))%>%
+    left_join(pest.cafi, by = join_by(DAMAGE_AGENT_CD2 == Code)) %>%
+  rename(DAMAGE_2 = "Damage") %>%
+    select(-c(Network, Common_Name))%>%
+    left_join(pest.cafi, by = join_by(DAMAGE_AGENT_CD3 == Code)) %>%
+  rename(DAMAGE_3 = "Damage") %>%
+    select(-c(Network, Common_Name)) %>%
+      left_join(pest.cafi, by = join_by(DAMAGE_AGENT_CD4 == Code)) %>%
+  rename(DAMAGE_4 = "Damage") %>%
+    select(-c(Network, Common_Name)) %>%
+  # damage severity is already aligned
+  # getting rid of hte damage severity meanings
+  select(-c(DAMSEV1_Meaning, DAMSEV2_Meaning, DAMSEV3_Meaning, DAMSEV4_Meaning, DAMAGE_AGENT_CD1, DAMAGE_AGENT_CD2, DAMAGE_AGENT_CD3, DAMAGE_AGENT_CD4)) %>%
+  # do some more renaming things
+  rename(Year = "INVYR") %>%
+  mutate(n_plot = ifelse(PLOT %in% c(1078, 1079), 1, 3), 
+         sampled_plots = n_plot)
+  
+  
+str(cafi.5)
+str(rsn.merge)
+```
+
+
+# Join data
+- some qs emerging - how might ht of diameter measurement effect how the data is analyzed 
+- have to do 3.8 cm DBH for RSN to be compatible with teh CAFI data - could I include the sapling data here too
+- if a tree falls in CAFI - how is that reflected in teh data? the Standing dead, etc.?
+- CAFI has mortality year and what likely killed a tree...but I'm going to remove because not totally comparable to RSN
+
+```{r}
+# Column names unique to each
+setdiff(names(rsn.merge), names(cafi.5))  # in df1 but not df2
+setdiff(names(cafi.5), names(rsn.merge))  # in df2 but not df1
+
+# fix the RSN columns
+# adding in a DAMSEV4 adn a DAMAGE4
+# add in a HTDMP
+# if topped, lean, bowed this should be a damage - could add this to damsev4? 
+
+rsn.merge2 <- rsn.merge %>%
+  mutate(HTDMP = 4.5, 
+         DAMAGE_4 = case_when(
+    LEAN == 1 ~ "Damage",
+    BOWED == 1 ~ "Damage",
+    TOP %in% c("topped", "Topped") ~ "Damage",
+    suppressWarnings(as.numeric(TOP)) %>% between(0, 90) ~ "Damage",
+    TRUE ~ NA_character_
+  ), 
+         DAMSEV4 = NA) %>%
+  select(-c(DATE, DAMAGE, SEVERITY, TOP, LEAN, BOWED)) %>%
+  # update the damaged to include 
+  mutate(DAMAGED = as.integer(if_any(c(DAMAGE_1, DAMAGE_2, DAMAGE_3, DAMAGE_4), ~ !is.na(.x))),
+         Network = "RSN") %>%
+  # must be beyond 2010; gets rid of some of the FP and UP earlier years
+  filter(Year > 2010)
+
+# fix the cafi columns
+# add a column for yes/no damage (DAMAGED)
+# add a max_damage column for greatest number
+# make sample.rd from cycle, add sample.yr for consistency - might have ot mess around with this later
+
+# fisx the data ages to get the rough age class
+cafi.ages.2 <- cafi.ages %>%
+  select(site, StdAge)%>%
+  rename(PLOT = "site") %>%
+  mutate(age_class_yr = case_when(
+    StdAge < 40 ~ "Young", 
+    StdAge > 40 & StdAge < 61 ~ "Intermediate", 
+    StdAge > 60 ~ "Mature"
+  )) %>%
+  select(-StdAge)
+
+
+cafi.merge <- cafi.5 %>%
+  mutate(DAMAGED = as.integer(if_any(c(DAMAGE_1, DAMAGE_2, DAMAGE_3, DAMAGE_4), ~ !is.na(.x))), 
+         max_damage = pmax(DAMSEV1,DAMSEV2,DAMSEV3, DAMSEV4), 
+         sample.rd = CYCLE, 
+         sample.yr = Year) %>%
+  select(-CYCLE) %>%
+  left_join(cafi.ages.2) %>%
+  mutate(Network = "CAFI")
+
+
+# for CAFI, I want the last measurement to be in the 2020s
+cafi.2020 <- cafi.merge %>%
+  filter(Year > 2020) %>%
+  select(PLOT)%>%
+  distinct()
+
+cafi.merge2 <- cafi.merge %>%
+  filter(PLOT %in% cafi.2020$PLOT)%>%
+  # I also want to have more recent years
+  filter(Year > 2010)
+
+# merge
+merged <- rbind(rsn.merge2, cafi.merge2)
+
+```
+
+# Some visual checks on the merged data
+## sampling efforts
+- i reckon that this will show more on how we want to break up the RSN network - want the 2020s measurement and the one previous
+
+```{r}
+mature <- merged %>%
+  filter(age_class_yr == "Mature")
+intermediate<- merged %>%
+  filter(age_class_yr == "Intermediate")
+young <- merged %>%
+  filter(age_class_yr == "Young")
+tbd <- merged %>%
+  filter(is.na(age_class_yr))
+
+ggplot(data = mature, aes(as.factor(PLOT), Year, color = Network)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("Mature")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+ggplot(data = intermediate, aes(as.factor(PLOT), Year, color = Network)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("Intermediate")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+ggplot(data = young, aes(as.factor(PLOT), Year, color = Network)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("Young")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+ggplot(data = tbd, aes(as.factor(PLOT), Year, color = Network)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("TBD")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+```
+
+## Notes 
+- ages seems to not be measured in 2025 for the ones in Zach's list!
+- still need to get 3.8 dbh for RSN
+
+
+
+
