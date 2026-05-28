@@ -144,7 +144,8 @@ unique(rsn.3$SEVERITY)
 
 # prep teh pest dataset for RSN analysis
 pests.2 <- pest %>%
-  filter(Network == "RSN") 
+  filter(Network == "RSN") %>%
+  distinct(Common_Name, .keep_all = TRUE)
 
 rsn.4 <- rsn.3 %>%
   # there are a few categories that need to be fixed so that they separate 
@@ -258,6 +259,7 @@ locs.interior <- locs.avg %>%
   filter(!(lat < 63.15401 & long < -143.7223))
 
 library(leaflet)
+# can also do locs.avg to see what the full map looks like before :) 
 leaflet(locs.interior) %>%
   addProviderTiles("Esri.WorldTopoMap") %>%
   addCircleMarkers(
@@ -282,16 +284,19 @@ cafi.yr <- cafi.2 %>%
   filter(n < 2)
 # 1138 and 1140 and 1142 only have one, going to remove these
 
+
 cafi.3 <- cafi.2 %>%
   filter(PLOT %!in% cafi.yr$PLOT)
+unique(cafi.3$PLOT)
 ```
 
 # Get rid of the diameters for consistency
 - this takes care of the Status code such that is only alive or dead
+- this code gets rid of 3 sites in teh CAFI inventory data - 72 sites here
 ```{r}
 cafi.4 <- cafi.3 %>%
   filter(DIA > 3.8)
-
+unique(cafi.4$PLOT)
 ```
 
 
@@ -353,7 +358,7 @@ cafi.5 <- cafi.4 %>%
   mutate(n_plot = ifelse(PLOT %in% c(1078, 1079), 1, 3), 
          sampled_plots = n_plot)
   
-  
+unique(cafi.5$PLOT)  
 str(cafi.5)
 str(rsn.merge)
 ```
@@ -392,6 +397,10 @@ rsn.merge2 <- rsn.merge %>%
   # must be beyond 2010; gets rid of some of the FP and UP earlier years
   filter(Year > 2010)
 
+
+rsn.merge3 <- rsn.merge2 %>%
+  filter(DBH > 3.8)
+
 # fix the cafi columns
 # add a column for yes/no damage (DAMAGED)
 # add a max_damage column for greatest number
@@ -421,18 +430,28 @@ cafi.merge <- cafi.5 %>%
 
 # for CAFI, I want the last measurement to be in the 2020s
 cafi.2020 <- cafi.merge %>%
-  filter(Year > 2020) %>%
+  filter(Year > 2019) %>%
   select(PLOT)%>%
   distinct()
+
 
 cafi.merge2 <- cafi.merge %>%
   filter(PLOT %in% cafi.2020$PLOT)%>%
   # I also want to have more recent years
   filter(Year > 2010)
 
+cafi.plots <- cafi.merge2%>%
+  select(PLOT)%>%
+  distinct
+
 # merge
 merged <- rbind(rsn.merge2, cafi.merge2)
 
+# try getting rid of the RSN sites
+# importantly this gets rid of 37% of the data in RSN, so this is sad to reduce!!
+merged.2 <- merged %>%
+  filter(DBH > 3.8)
+unique(cafi.merge2$PLOT)
 ```
 
 # Some visual checks on the merged data
@@ -475,10 +494,238 @@ ggplot(data = tbd, aes(as.factor(PLOT), Year, color = Network)) +
 
 ```
 
+# Visualize the tbd
+```{r}
+
+str(tbd)
+unique(tbd$PLOT)
+tbd2 <- tbd %>%
+  mutate(PLOT = as.integer(PLOT))%>%
+  left_join(locs.interior) %>%
+  select(PLOT, long, lat) %>%
+  distinct()
+
+leaflet(tbd2) %>%
+  addProviderTiles("Esri.WorldTopoMap") %>%
+  addCircleMarkers(
+    lng = ~long,
+    lat = ~lat,
+    fillOpacity = 0.3,
+    popup = ~as.character(PLOT)
+  )
+```
+
 ## Notes 
 - ages seems to not be measured in 2025 for the ones in Zach's list!
-- still need to get 3.8 dbh for RSN
+- if i get rid of trees with 3.8 dbh for RSN, then this gets rid of 42% fo the data!!! - understand the distribution of tree sizes among the rsn sites - how does this vary between young and mature stands
+- weird that CAFI merged is only 3684 trees across two sampling periods for 24 sites; I want to look into this more - like how many trees per plot/m2 and how does this compare with some o fhte other mature sites; seems reasonable
 
+# Exploring CAFI tree nos
+- why so little and how does that compare with the RSN sites
+- look at spread of decid/not in the cafi ages file
+- CAFI in general seems to have a little lower tree density? is that a function of smaller trees and more deciduous?
+
+
+# Plot-level m2 trees
+- lose most of the dead trees when increase to over 3.8 DBH requirement in the RSN network; don't see the death of a lot of trees
+```{r}
+str(merged.2)
+
+subp_trees <- merged.2 %>%
+  group_by(Year, PLOT, SUBP, SPECIES, Plot.Area.M2, sample.rd, Network, DA, age_class_yr)%>%
+  summarize(n=n(), mean_dbh = mean(DBH, na.rm = TRUE), sd_dbh = sd(DBH,na.rm = TRUE)) %>%
+  mutate(no_m2 = n/Plot.Area.M2)
+
+plot_trees <- subp_trees %>%
+  ungroup()%>%
+  group_by(Year, PLOT, SPECIES, Plot.Area.M2, sample.rd, Network, DA, age_class_yr) %>%
+  summarize(no_trees = sum(n), avg_no_m2 = mean(no_m2, na.rm = TRUE), avg_dbh = mean(mean_dbh, na.rm= TRUE), sd_dbh = sd(mean_dbh, na.rm = TRUE)) %>%
+  ungroup() %>%
+  filter(DA ==1) %>%
+  filter(SPECIES != "PICEA")
+
+unique(plot_trees$SPECIES)
+
+no_trees <- plot_trees %>%
+  group_by(Year, PLOT, Plot.Area.M2, sample.rd, Network, DA, age_class_yr) %>%
+  summarize(no_m2 = sum(avg_no_m2)) %>%
+  filter(DA == 1)
+
+ggplot(no_trees, aes(Year, no_m2, color = Network))+
+  geom_point(alpha = 0.7)+
+  theme_bw() 
+
+ggplot(plot_trees, aes(Year, avg_no_m2, color = Network))+
+  geom_point(alpha = 0.7)+
+  theme_bw() +
+  facet_wrap(~SPECIES)
+  
+```
+
+# compare canopy classes and locations
+- CAFI doesn't necessarily give us a ton
+```{r}
+# read in the data for the RSN network, join with the CAFI info on decid
+rsn.meta <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/RSN_Site/RSN_Master_Site.csv')
+str(rsn.meta)
+str(cafi.ages)
+
+cafi.canopy <- cafi.ages %>%
+  select(c(site, Class, Longitude, Latitude)) %>%
+  rename(PLOT = "site") %>%
+  mutate(Network = "CAFI")
+unique(cafi.canopy$Class)
+rsn.canopy <- rsn.meta %>%
+  select(sitename, canopy_typ, n_dd, w_dd)%>%
+  rename(PLOT = "sitename", 
+         Longitude = w_dd, 
+         Latitude = n_dd) %>%
+  mutate(Class = case_when(
+    canopy_typ %in% c("birch", "aspen", "hardwood") ~ "Decid", 
+    canopy_typ == "mixed" ~ "Mixed",
+    TRUE ~ "Spruce"
+  )) %>%
+  select(-canopy_typ) %>%
+  mutate(Network = "RSN")
+
+canopy <- rbind(cafi.canopy, rsn.canopy)
+str(canopy)
+
+# join with the merged dataset
+merge.canopy <- merged.2 %>%
+  left_join(canopy)
+
+# look at a map
+canopy <- merged.2 %>%
+  left_join(canopy) %>%
+  select(PLOT, Class, Network, Latitude, Longitude)%>%
+  distinct()
+is.null(canopy)
+
+# Color palette for 3 classes
+class_pal <- colorFactor(
+  palette = c("#D85A30", "#1D9E75", "#378ADD"),  # coral/Decid, teal/Spruce, blue/Mixed
+  levels  = c("Decid", "Spruce", "Mixed")
+)
+
+leaflet(data = canopy) %>%
+  addProviderTiles("Esri.WorldTopoMap") %>%
+  
+  # CAFI - black outline
+  addCircleMarkers(
+    data        = filter(canopy, Network == "CAFI"),
+    lng         = ~Longitude,
+    lat         = ~Latitude,
+    radius      = 7,
+    color       = "black",
+    weight      = 1.5,
+    fillColor   = ~class_pal(Class),
+    fillOpacity = 0.9,
+    popup = ~paste0(
+      "<b>Plot:</b> ", PLOT, "<br>",
+      "<b>Class:</b> ", Class, "<br>",
+      "<b>Network:</b> ", Network
+    )
+  ) %>%
+  
+  # RSN - white outline
+  addCircleMarkers(
+    data        = filter(canopy, Network == "RSN"),
+    lng         = ~Longitude,
+    lat         = ~Latitude,
+    radius      = 7,
+    color       = "white",
+    weight      = 1.5,
+    fillColor   = ~class_pal(Class),
+    fillOpacity = 0.9,
+    popup = ~paste0(
+      "<b>Plot:</b> ", PLOT, "<br>",
+      "<b>Class:</b> ", Class, "<br>",
+      "<b>Network:</b> ", Network
+    )
+  ) %>%
+  
+  addLegend(
+    position = "bottomright",
+    pal      = class_pal,
+    values   = canopy$Class,
+    title    = "Forest class",
+    opacity  = 0.9
+  )
+
+# look at sampling rounds adn what not
+str(merge.canopy)
+
+mature <- merge.canopy %>%
+  filter(age_class_yr == "Mature")
+intermediate<-  merge.canopy %>%
+  filter(age_class_yr == "Intermediate")
+young <-  merge.canopy %>%
+  filter(age_class_yr == "Young")
+tbd <-  merge.canopy %>%
+  filter(is.na(age_class_yr))
+
+ggplot(data = mature, aes(as.factor(PLOT), Year, color = Class)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("Mature")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+ggplot(data = intermediate, aes(as.factor(PLOT), Year, color = Class)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("Intermediate")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+ggplot(data = young, aes(as.factor(PLOT), Year, color = Class)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("Young")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+
+ggplot(data = tbd, aes(as.factor(PLOT), Year, color =Class)) + 
+  geom_point() +
+  theme_bw()+
+  ggtitle("TBD")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8))
+```
+
+
+# understand 3.8
+- what is the impact of filtering out trees less than 3.8 in RSN - how does this impact vary among the different stand ages
+- definitley probably primarily affects young deciduous trees (generally accounts for close to 100% of those trees), but PICMAR is small across age classes and regularly is over 50% of the stand (more consistently probably 25, but it is a big part of the PICMAR community too in mature stand as well). Getting rid of this might matter more so for the PICMAR mature than the mature deciduous stands..? hard to say though because don't have that represented in this dataset. I could look at the sapling data and see what is it looking like
+```{r}
+tot_num <- rsn.merge2 %>%
+  group_by(PLOT, age_class_yr, sample.rd) %>%
+  summarize(tot_trees = n())
+
+rsn3.8 <- rsn.merge2 %>%
+  mutate(dbh_class = case_when(
+    DBH < 3.81 ~ "Small",
+    DBH > 10 ~ "Large",
+    TRUE ~ "Mid"
+  )) %>%
+  group_by(PLOT, age_class_yr, sample.rd, SPECIES, dbh_class) %>%
+  summarize(n = n()) %>%
+  left_join(tot_num)%>%
+  mutate(n_prop = n/tot_trees) %>%
+  filter(SPECIES %!in% c("PICEA", "LARLAR", "POPBAL"))
+
+
+number <- ggplot(rsn3.8, aes(sample.rd, n, color = age_class_yr))+
+  geom_jitter(alpha = 0.7)+
+  theme_bw()+
+  facet_wrap(~SPECIES+dbh_class)
+number
+
+
+prop <- ggplot(rsn3.8, aes(sample.rd, n_prop, color = age_class_yr))+
+  geom_jitter(alpha = 0.7)+
+  theme_bw()+
+  facet_wrap(~SPECIES+dbh_class)
+prop
+
+```
 
 
 
