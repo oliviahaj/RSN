@@ -358,7 +358,7 @@ cafi.5 <- cafi.4 %>%
   mutate(n_plot = ifelse(PLOT %in% c(1078, 1079), 1, 3), 
          sampled_plots = n_plot)
   
-unique(cafi.5$PLOT)  
+cafi.sites.plots <- unique(cafi.5$PLOT)  
 str(cafi.5)
 str(rsn.merge)
 ```
