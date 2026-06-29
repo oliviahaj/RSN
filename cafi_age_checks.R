@@ -1,3 +1,5 @@
+library(tidyverse)
+
 subs <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/452_CAFI_SUBPLOT_v20241220.csv")
 
 library(readxl)
@@ -30,6 +32,11 @@ mel.age <- mel_age %>%
 tree.test <- tree.2 %>%
   left_join(unique.subs) 
 
+tree.32 <- tree.2 %>%
+  left_join(unique.subs)%>%
+  filter(PLOT %in% c(1180, 1096, 1175,1183))
+# all but 1180 are just an average of the two oldest trees adn then the timepoint. not sure what's going on wiht 1180
+
 tree.3 <- tree.2 %>%
   left_join(unique.subs) %>%
   group_by(PLOT, Spp) %>%
@@ -49,3 +56,19 @@ tree.4 <- tree.2 %>%
   left_join(mel.age)%>%
   mutate(diff = age_biomass_yr_msrd - mean)
 
+
+subp <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/452_CAFI_SUBPLOT_v20241220.csv")
+
+str(subp)
+subp.prep <- subp %>%
+  select(PLOT, CYCLE, MEASYEAR) %>%
+  mutate(CAFI_sampling_time = paste("T",CYCLE, sep="")) %>%
+  distinct()
+
+test <- left_join(tree.3, subp.prep)  
+
+test.2 <- test %>%
+  mutate(year2 = Year + 2000, 
+         diff2 =  MEASYEAR - year2, 
+         off = diff2 - diff, 
+         range = max-min)
