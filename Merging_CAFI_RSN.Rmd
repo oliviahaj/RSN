@@ -34,16 +34,16 @@ rm(list = ls()); gc()
 # Read in Data
 ```{r}
 ## RSN Datasets
-rsn <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/QAQC_Data/Updated/RSN_Inventory_QAQC_Final_2026-04-09.csv')
+rsn <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/QAQC_Data/Updated/RSN_Inventory_QAQC_Final_2026-04-09.csv')
 
-site.yrs <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/site_years.csv')
+site.yrs <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Data_checks/site_years.csv')
 
 ## CAFI Datasets
-cafi <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/CAFI_Inventory_QAQC_Final.csv")
-cafi.ages <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/cafi_loc_deciduous.csv")
+cafi <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/CAFI/CAFI_Inventory_QAQC_Final.csv')
+cafi.ages <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/CAFI/cafi_loc_deciduous.csv')
 
 ## Metadata
-pest <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/2026 Data/Data_checks/Pest_merge_check.csv')
+pest <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Data_checks/Pest_merge_check.csv')
 
 ```
 
@@ -69,11 +69,12 @@ rsn.2 <- rsn %>%
   arrange(UniqueID, Year) %>% # Ensure data is in chronological order
   group_by(UniqueID) %>%
   # keep NA DBH, DBH > 2.5, or if the DBH exceeds 2.5, it will keep subsequent observatoins
-  # this code above removes 4693 observations
+  # this code above removes 4693 observations and then the following line removes 1140 observations that have initial measurements below 2.5
   filter(is.na(DBH) | DBH >= 2.49 | cumany(DBH >= 2.49)) %>%
   ungroup()
 
 # see which trees only have an NA - this is after the seedlings have been removed, so in many cases these had an intiial measurement that was NA and corresponded to somehting like 0.7cm
+# this is mostly FP5D
 na.trees <- rsn.2%>%
   group_by(UniqueID) %>%
   filter(all(is.na(DBH))) #%>%
@@ -240,7 +241,7 @@ rsn.merge <- rsn.5 %>%
 - also want to make sure a site has more than 1 measurement so that can look at change
 ```{r}
 str(cafi)
-locs <- read.csv("/Users/olhajek/Desktop/RSN/CAFI_data/452_CAFI_LOCATION_FUZZED_v20241220.csv")
+locs <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/CAFI/452_CAFI_LOCATION_FUZZED_v20241220.csv')
 str(locs)
 locs.avg <- locs %>%
   #a weird value that messes up the whole 1098 plots
@@ -397,9 +398,9 @@ rsn.merge2 <- rsn.merge %>%
   # must be beyond 2010; gets rid of some of the FP and UP earlier years
   filter(Year > 2010)
 
-
-rsn.merge3 <- rsn.merge2 %>%
-  filter(DBH > 3.8)
+# Not going to reduce the RSN dataset by this much, but important to note
+# rsn.merge3 <- rsn.merge2 %>%
+#   filter(DBH > 3.8)
 
 # fix the cafi columns
 # add a column for yes/no damage (DAMAGED)
@@ -449,10 +450,23 @@ merged <- rbind(rsn.merge2, cafi.merge2)
 
 # try getting rid of the RSN sites
 # importantly this gets rid of 37% of the data in RSN, so this is sad to reduce!!
-merged.2 <- merged %>%
-  filter(DBH > 3.8)
-unique(cafi.merge2$PLOT)
+# merged.2 <- merged %>%
+# #   filter(DBH > 3.8)
+# unique(cafi.merge2$PLOT)
 ```
+
+
+# Export the merged dataset
+## even though just added all the sample round sort of information, i'm going to remove age and sample round info and add it back in later
+```{r}
+glimpse(merged)
+
+merged.export <- merged %>%
+  select(-c(sample.rd, sample.yr, n_plot, sampled_plots, age_class_yr))
+
+write.csv(merged.export, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/RSN_CAFI_merged.csv", row.names = FALSE)
+```
+
 
 # Some visual checks on the merged data
 ## sampling efforts
@@ -529,9 +543,9 @@ leaflet(tbd2) %>%
 # Plot-level m2 trees
 - lose most of the dead trees when increase to over 3.8 DBH requirement in the RSN network; don't see the death of a lot of trees
 ```{r}
-str(merged.2)
+str(merged)
 
-subp_trees <- merged.2 %>%
+subp_trees <- merged %>%
   group_by(Year, PLOT, SUBP, SPECIES, Plot.Area.M2, sample.rd, Network, DA, age_class_yr)%>%
   summarize(n=n(), mean_dbh = mean(DBH, na.rm = TRUE), sd_dbh = sd(DBH,na.rm = TRUE)) %>%
   mutate(no_m2 = n/Plot.Area.M2)
