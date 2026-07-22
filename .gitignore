@@ -72,3 +72,7 @@ data_dbh.csv
 RSN_Analysis-Plan.html
 Exploratory_Data_Analysis.html
 *.html
+# Data/
+# figures_and_tables/
+Data/
+figures_and_tables/
