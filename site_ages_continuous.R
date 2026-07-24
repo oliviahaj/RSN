@@ -168,7 +168,7 @@ tree.ages <- tree.ages %>%
 # 2) Export data file
 # I think we want the file with teh data pre-tree, so site_yr_ages with everythign that we have
 
-write.csv(tree.ages, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/continuous_tree_ages.csv")
+write.csv(tree.ages, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/continuous_tree_ages.csv", row.names = F)
 
 
 
