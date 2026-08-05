@@ -1,0 +1,565 @@
+---
+title: "Preliminary Analysis of RSN-CAFI Data"
+author: "OLH"
+date: "2026-08-03"
+output: 
+  bookdown::html_document2:
+    code_folding: hide
+    toc: TRUE
+    toc_depth: 4
+    toc_float: TRUE
+    collapsed: TRUE
+    theme: spacelab
+    fig_caption: TRUE
+    number_sections: FALSE
+---
+# Setup
+<style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.width=5,  fig.height=3.5, fig.align="center")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+
+# 1. Join inventory and stand age data
+
+- Create a category for tree age based on first age measured (young, intermediate, mature)
+
+```{r}
+# Read in the data
+## Inventory data
+trees <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/RSN_CAFI_merged.csv")
+
+## Tree ages
+ages <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/continuous_tree_ages.csv") 
+
+# Create a category for stand age based on the first measurement
+age.cat <- ages %>%
+  # select the first sampling year for each plot - will make the age determination from this
+  group_by(PLOT) %>%
+  slice_min(Year, n = 1) %>%
+  ungroup() %>%
+  # calculate an age from year and create a category
+  mutate(age.2 = 2026 - age, 
+         age_category = case_when(
+           age.2 < 40 ~ "Young", 
+           age.2 > 60 ~ "Mature",
+           is.na(age.2) ~ NA_character_,
+           TRUE ~ "Intermediate"
+         )) %>%
+  select(PLOT, age_category)
+
+# Join the categorical stand age with the ages
+ages <- left_join(ages, age.cat)
+
+# Join the trees and the stand age
+tree.age <- left_join(trees, ages)
+
+# what trees are missing an age - there are 5 sites, we might want to remove these
+na.age <- tree.age %>%
+  filter(is.na(age_category)) %>%
+  select(PLOT, Year) %>%
+  distinct()
+
+```
+
+## Read in lat-long data
+
+```{r}
+# RSN
+rsn.loc <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/RSN_Site/RSN_latlong.csv') %>%
+  rename(PLOT = SITE)
+
+# CAFI
+cafi.loc <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/CAFI/452_CAFI_LOCATION_FUZZED_v20241220.csv')
+
+cafi.loc2 <- cafi.loc %>%
+  #a weird value that messes up the whole 1098 plots
+  filter(OID_ !=290)%>%
+  # plot1180 has lat and long backwards on one subplot
+  mutate(LAT = ifelse(OID_ == 534, LONG, LAT),
+         LONG = ifelse(OID_ == 534, -149.2414022, LONG))%>%
+  group_by(PLOT) %>%
+  summarize(lat = mean(LAT), long= mean(LONG)) %>%
+  # get rid of a plots that don't have teh right lat/long - not sure what's going on with these
+  # check these plots in the data - were they discontinued?
+  filter(PLOT %!in% c(1206, 1040, 1026))
+
+# Join
+glimpse(rsn.loc)
+glimpse(cafi.loc2)
+
+locs <- rbind(rsn.loc, cafi.loc2)
+
+```
+
+
+# 2. Calculate trajectory/deciduous index and tree densities
+
+- Based on alive trees
+- Compare using 2.5 cm and 3.8 cm cutoffs
+- Do any sites shift in their trajectory across time points?
+
+- Notes: 
+  - maybe 4 sites where there are a significant number of larch trees and SL1A is the only site with PICEA and it is certainly a large proportion of trees (majority) that are in this category. Larch shouldn't affect trajectory because with PICMAR mostly. PICEA would affect trajectory if removed, so will update the PICEA to be PICGLA for now because only PICGLA is identified at SLA1 (it's not a lot...)
+  - LARLAR currently being removed for the data but can add in allometry equations from Bond and Lambert 2002. This does require a stand age parameter though. Maybe XW or MM would have another source for this.
+  - Using the above DBH allometric equations from H. Alexander - best equations to use? Confirmed the values with appendix 1. 
+  - There are 97 trees that are labelled as alive, but don't have a DBH. Majority of these are from the current last measurement period. Keeping these in for a density calculation right now, but not included in the biomass estimates because can't scale up with the biomass.
+  -deciduous index used but currently no "Open" type possible 
+  - 9 sites change trajectories over time
+
+```{r}
+# Summarize site level tree densities by species - trying to see the impact of larlar and picea on the overall biomass/stand level sorts of calculations
+tree.species <- trees %>%
+  group_by(SPECIES,Year, PLOT) %>%
+  summarize(n=n()) %>%
+  ungroup()%>%
+  pivot_wider(names_from = SPECIES, values_from = n)
+
+# Update the dataset for trajectory classification (PICEA --> PICGLA and remove LARLAR for now)
+# also remove the dead trees
+trees.traj <- tree.age %>%
+  mutate(SPECIES = ifelse(SPECIES == "PICEA", "PICGLA", SPECIES)) %>%
+  filter(SPECIES != "LARLAR") %>%
+  filter(DA != 0) %>%
+  # create a column for area sampled
+  mutate(area_sampled = Plot.Area.M2 * sampled_plots_period) %>%
+  # removing the trees with NA for DBH
+  filter(!is.na(DBH))
+
+#FUNCTIONS FOR TREE ALLOMETRY 
+#Above DBH trees used in Alexander et al. 2012, equations from Yarie et al. 2007, function based on species and DBH (cm) measurement; output in g/tree
+allom.dbh <- function(x, y) {
+  treebiomass <- numeric(length(x)) 
+  for (i in seq_along(x)) {
+    if (x[i] == "BETNEO") {
+      a <- 164.18
+      b <- 2.29
+    } else if (x[i] == "PICGLA") {
+      a <- 96.77
+      b <- 2.40
+    } else if (x[i] == "PICMAR") {
+      a <- 271.46
+      b <- 1.84
+    } else if (x[i] == "POPTRE") {
+      a <- 134.10
+      b <- 2.26
+    } else if (x[i] == "POPBAL") {
+      a <- 133.71
+      b <- 2.29
+    } else {
+      a <- NA
+      b <- NA
+    }
+    treebiomass[i] <- a * ((y[i])^b)
+  }
+  return(treebiomass) 
+}
+
+#Calculated by getting a mean biomass for above and below for each species, multiply by the site-level number of below and above trees, add together the biomass of below and above dbh trees of each species then divided by the area sampled to get the total biomass per msq of each vegetation type 
+trajectories <- trees.traj %>%
+  #Use allometric equation to calculate biomass of individuals measured, both above and below dbh
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
+  group_by(Network, PLOT, SPECIES, sample.pd, sampled_plots_period, area_sampled) %>%
+  #for each species within each site- get the mean value for biomass for above dbh individuals and below dbh individuals. Add all below dbh individuals and all above dbh individuals for each species in each site
+  summarise(mean_above_bio = mean(above_dbh_biomass, na.rm = TRUE), count_above = n()) %>%
+  ungroup()%>%
+  #multiply mean biomass * number of individuals for above and below individuals of each species, get total # of each species at the site level 
+  mutate(total_above_bio = mean_above_bio * count_above, total_count = count_above) %>%
+  #Get total biomass of each species at each site by getting sum of above and below biomass estimates
+  mutate(total_biomass = total_above_bio) %>%
+  #set spruce vs. deciduous designations by species
+  mutate(veg_type = ifelse(SPECIES %in% c("BETNEO", "POPTRE", "POPBAL"), "decid", "spruce")) %>%
+  group_by(Network, PLOT, sample.pd, sampled_plots_period, area_sampled, veg_type) %>%
+  #get total spruce and deciduous density and biomass for each site
+  summarise(site_count = sum(total_count), site_biomass = sum(total_biomass)) %>%
+  #Divide the total count and biomass estimated for site by the area surveyed to get the meter squared density and biomass of each vegetation type
+  mutate(dens_msq = site_count/area_sampled) %>%
+  mutate(biomass_msq = site_biomass/area_sampled) %>%
+  #get rid of columns you don't need 
+  select(-c(site_count, site_biomass)) %>%
+  #pivot data so you have a column for biomass and density for both spruce and deciduous 
+  pivot_wider(names_from = veg_type, values_from = c(dens_msq, biomass_msq)) %>%
+  mutate(across(starts_with("dens_msq_") | starts_with("biomass_msq_"), ~replace_na(., 0))) %>%
+  #Calculate relative deciduous density, relative deciduous biomass, and deciduous index
+  mutate(rel_dens_decid = dens_msq_decid/(dens_msq_decid + dens_msq_spruce), 
+         rel_biomass_decid = biomass_msq_decid/(biomass_msq_decid + biomass_msq_spruce), 
+         decid.index.msq = (rel_dens_decid + rel_biomass_decid)/2) %>%
+  #Categorize sites based on their deciduous index value!
+  mutate(canopy= case_when(
+    decid.index.msq > 0.66 ~ "decid",
+    decid.index.msq < 0.33 ~ "spruce",
+    TRUE ~ "mixed"
+  ))
+
+# Do any trajectories change over time?
+traj.change <- trajectories %>%
+  ungroup()%>%
+  select(PLOT, canopy) %>%
+  unique() %>%
+  group_by(PLOT)%>%
+  filter(n()>1)
+
+# Join trajectories - want a column that is for the final trajectory
+# select just the final trajectory
+traj.join <- trajectories %>%
+  ungroup()%>%
+  group_by(PLOT) %>%
+  slice_max(sample.pd, n = 1) %>%
+  ungroup() %>%
+  select(PLOT, canopy)
+
+## THIS IS THE DATASET THAT WE WILL USE MOVING FORWARD
+tree.age.traj <- tree.age %>%
+  left_join(traj.join) %>%
+  # create a column for the tree biomass too
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH))
+
+# visualize changes in trajectory over time
+traj <- left_join(trajectories, ages)
+
+ggplot(traj, aes(sample.pd, decid.index.msq, group=PLOT))+
+  geom_point()+
+  geom_line()+
+  theme_bw()+
+  geom_hline(yintercept=0.66, linetype= "dashed", color = "red") + 
+  geom_hline(yintercept=0.33, linetype= "dashed", color="green") + 
+  facet_wrap(~age_category)
+
+# Check how this changes if we just do 3.8 DBH for the RSN sites
+trees.traj.3.8 <- trees.traj %>%
+  filter(DBH > 3.7)
+
+
+trajectories3.8 <- trees.traj.3.8 %>%
+  #Use allometric equation to calculate biomass of individuals measured, both above and below dbh
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
+  group_by(Network, PLOT, SPECIES, sample.pd, sampled_plots_period, area_sampled) %>%
+  #for each species within each site- get the mean value for biomass for above dbh individuals and below dbh individuals. Add all below dbh individuals and all above dbh individuals for each species in each site
+  summarise(mean_above_bio = mean(above_dbh_biomass, na.rm = TRUE), count_above = n()) %>%
+  ungroup()%>%
+  #multiply mean biomass * number of individuals for above and below individuals of each species, get total # of each species at the site level 
+  mutate(total_above_bio = mean_above_bio * count_above, total_count = count_above) %>%
+  #Get total biomass of each species at each site by getting sum of above and below biomass estimates
+  mutate(total_biomass = total_above_bio) %>%
+  #set spruce vs. deciduous designations by species
+  mutate(veg_type = ifelse(SPECIES %in% c("BETNEO", "POPTRE", "POPBAL"), "decid", "spruce")) %>%
+  group_by(Network, PLOT, sample.pd, sampled_plots_period, area_sampled, veg_type) %>%
+  #get total spruce and deciduous density and biomass for each site
+  summarise(site_count = sum(total_count), site_biomass = sum(total_biomass)) %>%
+  #Divide the total count and biomass estimated for site by the area surveyed to get the meter squared density and biomass of each vegetation type
+  mutate(dens_msq = site_count/area_sampled) %>%
+  mutate(biomass_msq = site_biomass/area_sampled) %>%
+  #get rid of columns you don't need 
+  select(-c(site_count, site_biomass)) %>%
+  #pivot data so you have a column for biomass and density for both spruce and deciduous 
+  pivot_wider(names_from = veg_type, values_from = c(dens_msq, biomass_msq)) %>%
+  mutate(across(starts_with("dens_msq_") | starts_with("biomass_msq_"), ~replace_na(., 0))) %>%
+  #Calculate relative deciduous density, relative deciduous biomass, and deciduous index
+  mutate(rel_dens_decid = dens_msq_decid/(dens_msq_decid + dens_msq_spruce), 
+         rel_biomass_decid = biomass_msq_decid/(biomass_msq_decid + biomass_msq_spruce), 
+         decid.index.msq3.8 = (rel_dens_decid + rel_biomass_decid)/2) %>%
+  #Categorize sites based on their deciduous index value!
+  mutate(canopy3.8= case_when(
+    decid.index.msq3.8  > 0.66 ~ "decid",
+    decid.index.msq3.8  < 0.33 ~ "spruce",
+    TRUE ~ "mixed"
+  )) %>%
+  select(PLOT, sample.pd, decid.index.msq3.8, canopy3.8)
+
+# check the difference
+traj.2 <- left_join(traj, trajectories3.8) %>%
+  filter(Network == "RSN")
+
+# Do lose several sites having trees if move to 3.8
+# generally seem to see decent alignment between trajectories, but tendency to see more deciduous with the 3.8 in intermediate stands
+ggplot(traj.2, aes(decid.index.msq,decid.index.msq3.8))+
+  geom_point()+
+  theme_bw()+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50")+
+  geom_hline(yintercept=0.66, linetype= "dashed", color = "red") + 
+  geom_hline(yintercept=0.33, linetype= "dashed", color="green") + 
+  geom_vline(xintercept=0.66, linetype= "dashed", color = "red") + 
+  geom_vline(xintercept=0.33, linetype= "dashed", color="green") + 
+  facet_wrap(~age_category)
+
+```
+
+
+# 3. Summary of the data
+
+- Site sampling lengths by age and trajectory
+  - Sites with inventories before 2013 (in particular FP5A, FP5D)
+- Stand age summaries by trajectory
+  - Stand age: mean, max, min; burn year vs. tree ring — anything to consider here?
+  - Cohort vs. mixed age: stand-replacing fire suggests cohort structure, but evidence exists for mixed-age structure too. Does our age + CV data show two structures?
+  - Deciduous trees peak earlier than black spruce — how should that reshape the current young/intermediate/mature classifications, which were built around black spruce?
+- Tree density comparisons using the 2.5 cm vs. 3.8 cm cutoffs for RSN — how does that change the number of stems?
+- maybe a nice map of all of the sites colored by trajectorie and shaped by age or something likethat
+
+- Notes 
+  - there are 263 trees that are dead (DA = 0) but have DBH, most of these are from CAFI. Look into why this might be the case!
+  
+## Data length
+```{r}
+glimpse(tree.age.traj)
+
+# there are a number of "dead" trees with measured DBH primarily from the CAFI network
+check <- tree.age.traj %>%
+  filter(DA == 0)%>%
+  filter(!is.na(DBH))
+
+# create a summary of site with number of trees, dead and alive and then the change
+data.summary <- tree.age.traj %>%
+  group_by(Network, sample.pd, age_category, canopy, PLOT, DA)%>%
+  summarize(no_trees = n(), biomass = sum(above_dbh_biomass, na.rm = T)) %>%
+  pivot_wider(
+    names_from = DA,
+    values_from = c(no_trees, biomass),
+    names_sep = "_"
+  )
+
+glimpse(data.summary)
+ggplot(data = subset(data.summary, data.summary$age_category == "Mature"), aes(sample.pd, PLOT, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_category, scales= "free")
+
+ggplot(data = subset(data.summary, data.summary$age_category == "Intermediate"), aes(sample.pd, PLOT, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_category, scales= "free")
+
+ggplot(data = subset(data.summary, data.summary$age_category == "Young"), aes(sample.pd, PLOT, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_category, scales= "free")
+
+```
+
+## Stand age
+- just focusing on RSN to look at these dynamics
+- what is cbsnbc as a SPECIES?
+- some pretty substantial variation amont ages for a large number of mature spruce sites in particular
+```{r}
+rsn.ages <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/Tree_Age_Data/Compiled/RSN_TreeAge_Compiled.csv") %>%
+  rename(PLOT = Site) %>%
+  left_join(traj.join) %>%
+  # fix species
+  mutate(SPECIES = case_when(
+    Species == "LALA" ~ "LARLAR", 
+    Species == "LALA" ~ "LARLAR",
+    Species == "PICLGLA" ~ "PICGLA",
+    Species == "Picmar" ~ "PICMAR",
+    Species == "PIGL" ~ "PICGLA",
+    Species == "PIMA" ~ "PICMAR",
+    TRUE ~ Species
+  ))
+
+glimpse(rsn.ages)
+
+ggplot(rsn.ages, aes(Pith_Year, PLOT, color = SPECIES))+
+  geom_point()+
+  theme_bw() +
+  facet_wrap(~canopy, scales = "free")
+
+# subset to zoom in 
+ages.range <- ages %>%
+  filter(max_ty-min_ty > 50)
+
+rsn.ages2 <- rsn.ages %>%
+  filter(PLOT %in% ages.range$PLOT)
+
+ggplot(data = rsn.ages2, aes(Pith_Year, PLOT, color = SPECIES))+
+  geom_point()+
+  theme_bw() +
+  xlim(1775, 2000)
+
+```
+
+
+## Tree density & biomass
+
+```{r}
+data.summary.tree <- tree.age.traj %>%
+  group_by(Network, sample.pd, age_category, canopy, PLOT, DA, SPECIES)%>%
+  summarize(no_trees = n(), biomass = sum(above_dbh_biomass, na.rm = T)) 
+
+# Density
+glimpse(data.summary.tree)
+
+# Just live trees for the final sampling period
+dst.2 <- data.summary.tree %>%
+  filter(DA == 1) %>%
+  filter(sample.pd == 3)  %>%
+  filter(!is.na(age_category))
+ggplot(data = dst.2,
+       aes(x = no_trees, y = PLOT, fill = SPECIES)) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "Number of Trees", y = "PLOT", fill = "Species") +
+  facet_wrap(~age_category, scales = "free")
+  
+# Biomass
+ggplot(data = dst.2,
+       aes(x = biomass, y = PLOT, fill = SPECIES)) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "Biomass", y = "PLOT", fill = "Species") +
+  facet_wrap(~age_category, scales = "free_y")
+
+
+# Just deadtrees for the final sampling period
+dst.0 <- data.summary.tree %>%
+  filter(DA == 0) %>%
+  filter(sample.pd == 3) %>%
+  filter(!is.na(age_category))
+ggplot(data = dst.0,
+       aes(x = no_trees, y = PLOT, fill = SPECIES)) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "Number of Trees", y = "PLOT", fill = "Species") +
+  facet_wrap(~age_category, scales = "free")+
+  ggtitle("Dead Trees in Last Sampling")
+
+# Make a comparable table
+data.summary.tree2 <- tree.age.traj %>%
+  group_by(Network, sample.pd, age_category, canopy, PLOT, DA, SPECIES) %>%
+  summarize(no_trees = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = c(DA, SPECIES),
+    values_from = no_trees,
+    values_fill = 0
+  ) %>%
+  arrange(PLOT, sample.pd)
+
+
+```
+
+
+## Map
+
+```{r}
+locs.2 <- left_join(traj.join, locs)
+locs.3 <- left_join(locs.2, ages)
+
+library(leaflet)
+library(dplyr)
+
+# --- 1. Define your color and shape mappings ---
+# Adjust these names to match your actual trajectory / age_category values
+trajectory_colors <- c(
+  "spruce"    = "#2c7fb8",
+  "decid" = "#d95f0e",
+  "mixed"      = "#31a354"
+)
+
+age_shapes <- c(
+  "Young" = "circle",
+  "Intermediate"   = "square",
+  "Mature"   = "triangle"
+)
+
+# --- 2. Function to build a small SVG icon for a given shape + color ---
+make_svg_icon <- function(shape, color, size = 22) {
+  shape_svg <- switch(shape,
+    "circle"   = sprintf('<circle cx="%1$s" cy="%1$s" r="%2$s" fill="%3$s" stroke="black" stroke-width="1"/>',
+                          size / 2, size / 2 - 2, color),
+    "square"   = sprintf('<rect x="2" y="2" width="%1$s" height="%1$s" fill="%2$s" stroke="black" stroke-width="1"/>',
+                          size - 4, color),
+    "triangle" = sprintf('<polygon points="%1$s,2 %2$s,%3$s 2,%3$s" fill="%4$s" stroke="black" stroke-width="1"/>',
+                          size / 2, size - 2, size - 2, color)
+  )
+  svg <- sprintf('<svg xmlns="http://www.w3.org/2000/svg" width="%1$s" height="%1$s">%2$s</svg>', size, shape_svg)
+  paste0("data:image/svg+xml;utf8,", utils::URLencode(svg, reserved = TRUE))
+}
+
+# --- 3. Attach an icon URL to every row of your site data ---
+# site.data needs: lat, lon, trajectory, age_category (and anything you want in popups)
+site.data <- locs.3 %>%
+  mutate(icon_url = mapply(make_svg_icon,
+                            shape = age_shapes[age_category],
+                            color = trajectory_colors[canopy]))
+
+site_icons <- icons(
+  iconUrl   = site.data$icon_url,
+  iconWidth = 22, iconHeight = 22
+)
+
+# --- 4. Build the map ---
+leaflet(site.data) %>%
+  addProviderTiles(providers$Esri.WorldTopoMap) %>%
+  addMarkers(
+    lng = ~long, lat = ~lat, icon = site_icons,
+    popup = ~paste0("<b>Site:</b> ", PLOT,
+                     "<br><b>Trajectory:</b> ", canopy,
+                     "<br><b>Age category:</b> ", age_category)
+  ) %>%
+  addLegend("bottomright",
+            colors = trajectory_colors, labels = names(trajectory_colors),
+            title = "Trajectory") %>%
+  addControl(
+    html = paste0(
+      "<div style='background:white;padding:6px 8px;border-radius:4px;font-size:12px;'>",
+      "<b>Age category</b><br>",
+      paste0("<img src='", sapply(names(age_shapes), function(a) make_svg_icon(age_shapes[[a]], "black")),
+             "' width='14' height='14' style='vertical-align:middle;'> ", names(age_shapes),
+             collapse = "<br>"),
+      "</div>"
+    ),
+    position = "bottomright"
+  )
+```
+
+
+# 4. Individual tree growth and mortality
+
+- How does growth vary across stand age and among tree species? Specifically, how does the slope of the yield curve change by species and age?
+  - Yield curve: RGR (or g/cm/tree per year) on the y-axis vs. age (years since fire) on the x-axis, faceted/colored by species. Read off slope changes by species and age class.
+  - Per-unit biomass vs. RGR — the basic forestry graph, plus follow-on basic forestry diagnostics as exploratory analyses.
+  - Same growth-age plot at the site level: each point is a site, x = time since fire, y = g C m^-2^ yr^-1^, with a fit line per tree species x age class to compare slopes. Alternative version facets by tree species with one line per canopy/stand type.
+- How many trees are dying, and how does mortality vary with density and age?
+- seems like there migth be a lot of recruitment in the mature stands..
+
+# 5. Stand demographics
+
+- How do birth (recruitment) and mortality, alongside individual growth, contribute to stand-level growth and biomass accumulation?
+- Relate demographic processes to carbon stocks — outputs in g C m^-2^ yr^-1^. Death-carbon enters as a negative.
+- How do these demographic contributions change through succession?
+- Is competition or facilitation driving these dynamics? Consider asymmetric competition between growth trajectory and death.
+- How do pests and pathogens alter these patterns?
+- Bar graphs of absolute carbon-pool size split by demographic driver (growth, birth, death).
+- Continuous-age version of the same: x = age since fire, y = g C m^-2^ yr^-1^, with total C and the birth and death components plotted on the same axes (death as a negative).
+- Necromass trajectories with an explicit "vulnerable to loss" fraction (i.e., dead biomass that will burn in the next fire).
+
+# 6. Stand composition
+
+- Even mature sites appear to keep recruiting — are there interesting recruitment patterns within mature stands?
+- Are there mature/intermediate sites with large proportions of black spruce death?
+- Overyielding in mixed stands — is it driven by reduced self-thinning, pathogen resistance, or shifts in intraspecific competition?
+
+# Data questions
+
+## Have
+- Tree inventory
+- Stand ages
+
+## Need
+- JFSP seedling/sapling data; also CAFI?
+- consistent measures like soil moisture, slope, elevation, etc. across the two networks
+- new RSN data - follow up with Jamie now?
+
+
+
+
+
