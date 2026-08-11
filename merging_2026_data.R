@@ -7,7 +7,7 @@ library(purrr)
 library(stringr)
 library(readr)
 library(tidyr)
-
+`%!in%` = Negate(`%in%`)
 
 # 1. Get all matching files (ignore.case handles All/all/ALL)
 files <- list.files("/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Completed Sites",
@@ -82,7 +82,7 @@ column_lookup <-rbind(column_name_lookup, fp5d_colnames)
 
 
 # Export the column lookup and will manually add it 
-#write.csv(column_lookup, '/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Data_checks/column_lookup_2026_data.csv', row.names = F)
+##write.csv(column_lookup, '/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Data_checks/column_lookup_2026_data2.csv', row.names = F)
 
 # read in the CSV
 match <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Data_checks/column_lookup_2026_data.csv') %>%
@@ -133,6 +133,10 @@ glimpse(all_site2)
 unique(all_site2$SITE)
 unique(all_site2$PLOT)
 unique(all_site2$SPECIES)
+unique(all_site2$TOP)
+unique(all_site2$LEAN)
+unique(all_site2$BOWED)
+unique(all_site2$DOWN)
 
 all <- all_site2 %>%
   # remove site column 
@@ -170,20 +174,45 @@ all <- all_site2 %>%
     str_starts(DBH, "-7") ~ "-7777",
     str_starts(DBH, "-8") ~ "-8888",
     str_starts(DBH, "-9") ~ "-9999",
-    TRUE ~ DBH))
-
+    TRUE ~ DBH), 
+  TOP = as.numeric(gsub("m", "", TOP)), 
+  LEAN = gsub("m", "", LEAN), 
+  # many NOTES indicate leaning or bowed, and making that update here
+  LEAN = if_else(
+    str_detect(NOTES, regex("lean", ignore_case = TRUE)),
+    "leaning",
+    LEAN
+  ),
+  TOP = if_else(
+    str_detect(NOTES, regex("topp", ignore_case = TRUE)),
+    as.numeric(str_extract(
+      str_extract(
+        NOTES,
+        regex("topp.*?\\d+(?:\\.\\d+)?", ignore_case = TRUE)
+      ),
+      "\\d+(?:\\.\\d+)?"
+    )),
+    as.numeric(TOP)
+  ),
+  BOWED = if_else(
+    str_detect(NOTES, regex("bowed", ignore_case = TRUE)),
+    "bowed",
+    BOWED), 
+  DOWN = ifelse(DBH == -9999, 0, 1),
+  DBH = ifelse(is.na(DBH), -8888, DBH))%>%
   mutate(UniqueID = paste(SITE,PLOT,TREE, sep="_"), 
-         Date = NA_character_, DA) %>%
+         Date = NA_character_, DA = ifelse(DBH %in% c(-7777, -9999), 0, 1)) %>%
     # Drop these two rows because they were entered wrongly and they've been updated in the previous section
     filter(UniqueID %!in% c("UP4C_2_30", "UP4C_2_31"))
 
 unique(all$SITE)
 unique(all$PLOT)
 unique(all$SPECIES)
-
+unique(all$TOP)
+unique(all$LEAN)
 
 # NOTES
 # TREE 357 is the old 26 in UP4A Plot 1 - this doesn't seem to be updated in the final script either
-
+# deifnitley some tag changes that should reflect on 
 
 

@@ -389,7 +389,7 @@ ggplot(data = rsn.ages2, aes(Pith_Year, PLOT, color = SPECIES))+
 
 
 ## Tree density & biomass
-
+- Why is it that CAFI seems to have SUCH fewer trees. Even if i go down to 3.8cm then it still feels really low. 
 ```{r}
 data.summary.tree <- tree.age.traj %>%
   group_by(Network, sample.pd, age_category, canopy, PLOT, DA, SPECIES)%>%
@@ -443,6 +443,25 @@ data.summary.tree2 <- tree.age.traj %>%
   ) %>%
   arrange(PLOT, sample.pd)
 
+
+
+# how would this change with the 3.8 
+data.summary.tree2 <- tree.age.traj %>%
+  filter (DBH > 3.7) %>%
+  group_by(Network, sample.pd, age_category, canopy, PLOT, DA, SPECIES)%>%
+  summarize(no_trees = n(), biomass = sum(above_dbh_biomass, na.rm = T)) 
+
+dst.38 <- data.summary.tree2 %>%
+  filter(DA == 1) %>%
+  filter(sample.pd == 3)  %>%
+  filter(!is.na(age_category))
+ggplot(data = dst.38,
+       aes(x = no_trees, y = PLOT, fill = SPECIES)) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "Number of Trees", y = "PLOT", fill = "Species") +
+  facet_wrap(~age_category, scales = "free")
+  
 
 ```
 
@@ -528,8 +547,234 @@ leaflet(site.data) %>%
   - Yield curve: RGR (or g/cm/tree per year) on the y-axis vs. age (years since fire) on the x-axis, faceted/colored by species. Read off slope changes by species and age class.
   - Per-unit biomass vs. RGR — the basic forestry graph, plus follow-on basic forestry diagnostics as exploratory analyses.
   - Same growth-age plot at the site level: each point is a site, x = time since fire, y = g C m^-2^ yr^-1^, with a fit line per tree species x age class to compare slopes. Alternative version facets by tree species with one line per canopy/stand type.
-- How many trees are dying, and how does mortality vary with density and age?
-- seems like there migth be a lot of recruitment in the mature stands..
+
+##Individual metric calculations
+```{r}
+# Create tree level metrics
+# RGR  - biomass, DBH, BA
+tree.metrics <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 3) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    lag_DBH = lag(DBH),
+    # BA in m2
+    BA = 0.00007854 * (DBH)^2,
+    BA_diff = BA - lag(BA),
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+    RGR = (log(DBH) - log(lag(DBH)))/Year_diff,
+    RBA = (log(BA) - log(lag(BA)))/Year_diff,
+    Year_before = lag(Year), 
+    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
+    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff, 
+    biomass_RGR_XW = ((above_dbh_biomass - lag(above_dbh_biomass))/lag(above_dbh_biomass))/Year_diff, 
+    age2 = Year - age
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_"))
+
+ggplot(tree.metrics, aes(above_dbh_biomass,fill = age_category))+
+  geom_histogram(alpha=0.5)+
+  facet_wrap(~SPECIES, scales = "free")
+```
+
+## Individ Graphs
+
+- How does growth vary across stand age and among tree species? Specifically, how does the slope of the yield curve change by species and age?
+  - Yield curve: RGR (or g/cm/tree per year) on the y-axis vs. age (years since fire) on the x-axis, faceted/colored by species. Read off slope changes by species and age class.
+  - Per-unit biomass vs. RGR — the basic forestry graph, plus follow-on basic forestry diagnostics as exploratory analyses.
+  - Same growth-age plot at the site level: each point is a site, x = time since fire, y = g C m^-2^ yr^-1^, with a fit line per tree species x age class to compare slopes. Alternative version facets by tree species with one line per canopy/stand type.
+  
+  
+### Notes
+- I think still some issues wiht the difference - these seem like decimal issues; why are these happening. listed two trees that are substantial
+GRI4_14_1728
+MDM1_1_28
+
+# these seem really high - opposite issue
+TRM4_6_231
+
+but there are some others that dont seem right...
+
+### Yield Curve
+```{r}
+# across all trees
+tree.metrics2 <- tree.metrics %>%
+  filter(!is.na(biomass_change)) %>%
+  filter(SPECIES != "POPBAL")
+
+ggplot(tree.metrics2, aes(age2, biomass_change, color = canopy))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~SPECIES, scales = "free")
+
+# at the site level
+glimpse(tree.metrics2)
+tree.metrics3 <- tree.metrics2 %>%
+  filter(Annual_Growth < 2) %>%
+  filter(Annual_Growth > -0.5) %>%
+  group_by(Network, PLOT, sample.pd, age2, SPECIES, canopy) %>%
+  summarize(mean_biomass_change = mean(biomass_change), RGR_change = mean(biomass_RGR), RGR_changeXW = mean(biomass_RGR_XW), RGR_2 = mean(RGR))
+
+ggplot(tree.metrics3, aes(age2, mean_biomass_change, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw()+
+  ggtitle("Site-level Biomass change")+
+  facet_wrap(~SPECIES, scales = "free")
+  
+ggplot(tree.metrics3, aes(age2, RGR_change, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw()+
+  ggtitle("Site-level Biomass RGR change")+
+  facet_wrap(~SPECIES, scales = "free")
+
+ggplot(tree.metrics3, aes(age2, RGR_changeXW, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw()+
+  ggtitle("Site-level Biomass RGR change XW Calc")+
+  facet_wrap(~SPECIES, scales = "free")
+
+```
+
+### Yield vs. BA/Densities
+- biomass vs. density
+- RGR vs. biomass
+- RGR vs. density
+- RGR vs. BA
+- BA vs. density
+- biomass vs. BA
+- looking at these in the context of age, species, dead/alive, canopy type - maybe can see the overyielding?
+- want a dataframe that has total biomass/density/ba at stand level for dead and alive - all trees combined one that has these features for each species (maybe only alive at the species level?)
+- going to focus on Biomass change vs. other metrics. and maybe will start with the 1-3 sample periods?
+
+
+- Notes: there are a lot of sites with just a few trees of a species (i.e., 1-3), might make sense to filter these out
+```{r}
+# live tree 
+tree.metrics.sp <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 3) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    BA = 0.00007854 * (DBH)^2,
+    BA_diff = BA - lag(BA),
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+    Year_before = lag(Year), 
+    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
+    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff, 
+    age2 = Year - age
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3, this will be so we can get all of the BA and biomass of the live trees by species
+  filter(sample.pd == 3) %>%
+  filter(SPECIES != "POPBAL") %>%
+# get rid of the crazy high stuff
+  filter(
+  is.na(Annual_Growth) | 
+    (Annual_Growth < 2 & Annual_Growth > -0.5)) %>%
+  group_by(Network, PLOT, sample.pd, age2, SPECIES, canopy, sample.area) %>%
+  summarize(
+    # number of trees 
+    n_trees = n()/first(sample.area), 
+    # BA and biomass
+    BA_sp = sum(BA)/first(sample.area), biomass_sp = sum(above_dbh_biomass)/first(sample.area),
+    # mean Growth rates
+    mean_biomass = mean(biomass_change, na.rm = T), mean_RGR = mean(biomass_RGR, na.rm = T))
+
+
+# stand metrics 
+stand <- tree.age.traj %>%
+  filter(sample.pd == 3) %>%
+  # calculate BA for each tree
+  mutate(
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    BA = 0.00007854 * (DBH)^2,
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  group_by(Network, PLOT, DA, sample.pd, age, age_category,canopy, sample.area) %>%
+  summarize(
+    # number of trees 
+    n_trees = n()/first(sample.area), 
+    # BA and biomass
+    BA = sum(BA, na.rm = T)/first(sample.area), biomass = sum(above_dbh_biomass, na.rm = T)/first(sample.area)) %>%
+  pivot_wider(names_from = DA,
+              values_from = c(n_trees, BA, biomass)) %>%
+  select(-c(biomass_0, BA_0)) %>%
+  mutate(n_trees_0 = replace_na(n_trees_0, 0))
+
+
+# join the two dataframes
+stand.sp <- left_join(tree.metrics.sp, stand)
+
+# graphs!
+glimpse(stand.sp)
+# - biomass vs. density 
+ggplot(stand, aes(n_trees_1, BA_1, color = canopy))+
+  geom_point()+
+  xlab("No. Trees")+
+  ylab("Overall Basal Area")+
+  theme_bw()+
+  facet_wrap(~age_category)
+
+ggplot(stand.sp, aes(n_trees_1, biomass_sp, color = SPECIES, shape = Network))+
+  geom_point()+
+  #geom_line(aes(group=PLOT))+
+  xlab("No. Trees")+
+  ylab("Species Biomass")+
+  theme_bw()+
+  facet_wrap(~age_category)
+
+# - RGR vs. biomass
+stand.sp2 <- stand.sp %>%
+  filter(SPECIES %!in% c("LARLAR", "PICEA"))
+
+# this plot doesn't hav emany of the young sites b/c so many didn't initially have trees
+ggplot(stand.sp2, aes(biomass_1, mean_RGR, color = age_category, shape = canopy))+
+  geom_point()+
+  #geom_line(aes(group=PLOT))+
+  xlab("Stand Biomass m2")+
+  ylab("Species Biomass RGR")+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+# - RGR vs. density
+
+ggplot(stand.sp2, aes(n_trees_1, mean_RGR, color = age_category, shape = canopy))+
+  geom_point()+
+  #geom_line(aes(group=PLOT))+
+  xlab("No. Trees")+
+  ylab("Species Biomass RGR")+
+  theme_bw()+
+  facet_wrap(~SPECIES, scales = "free")
+
+ggplot(stand.sp2, aes(n_trees, mean_RGR, color = age_category, shape = canopy))+
+  geom_point()+
+  #geom_line(aes(group=PLOT))+
+  xlab("No. Trees of same species")+
+  ylab("Species Biomass RGR")+
+  theme_bw()+
+  facet_wrap(~SPECIES, scales = "free")
+
+# - RGR vs. BA
+
+ggplot(stand.sp2, aes(BA_1, mean_RGR, color = age_category, shape = canopy))+
+  geom_point()+
+  #geom_line(aes(group=PLOT))+
+  xlab("BA")+
+  ylab("Species Biomass RGR")+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+
+```
+
 
 # 5. Stand demographics
 
@@ -541,6 +786,298 @@ leaflet(site.data) %>%
 - Bar graphs of absolute carbon-pool size split by demographic driver (growth, birth, death).
 - Continuous-age version of the same: x = age since fire, y = g C m^-2^ yr^-1^, with total C and the birth and death components plotted on the same axes (death as a negative).
 - Necromass trajectories with an explicit "vulnerable to loss" fraction (i.e., dead biomass that will burn in the next fire).
+- How many trees are dying, and how does mortality vary with density and age?
+- seems like there migth be a lot of recruitment in the mature stands..
+
+## Demographics dataframe
+- going to be comparing t1 to the last time point measured
+- want a biomass measure of growth, recruitment, and death from the last time point by species and want this by age
+- lots of big trees seem to recruit - hwo to handle this....I think get rid of for now but long-term or in the biomass terms of things
+- for growht - should i be subtracting out the below dbh biomass? mabye...
+- currently a few species not included
+
+```{r}
+# Growth
+growth <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 3) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+    Year_before = lag(Year), 
+    biomass_diff = (above_dbh_biomass - lag(above_dbh_biomass)),
+    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
+    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff, 
+    age2 = Year - age
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3, this will be so we can get all of the BA and biomass of the live trees by species
+  filter(sample.pd == 3) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>%
+# get rid of the crazy high stuff - this will also get rid of the NAs!
+  filter(Annual_Growth < 2 & Annual_Growth > -0.5) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass = sum(biomass_diff)/first(sample.area), 
+   n_trees = n()) %>%
+  mutate(type = "Growth")
+
+
+# Recruitment
+# below dbh to subtract out...
+dbh.25 <- tree.age.traj %>%
+  filter(DBH == 2.5) %>%
+  select(SPECIES, DBH) %>%
+  unique() %>%
+  mutate(DBH2 = DBH - 0.01, biomass = allom.dbh(SPECIES, DBH2)) %>%
+  select(-DBH)
+
+recruit <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 3) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3 that have an NA growth rate from period one
+  filter(is.na(Annual_Growth)) %>%
+  filter(sample.pd == 3) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  filter(PLOT %!in% c("FP5A", "FP5D")) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>% 
+  # filter out species that are way too big!
+  filter(DBH < 9) %>%
+  left_join(dbh.25) %>%
+  mutate(biomass_above = above_dbh_biomass - biomass) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass= sum(biomass_above)/first(sample.area), 
+   n_trees = n()) %>%
+  mutate(type = "Recruitment")
+
+# join growht and recruitment
+
+trees <- rbind(growth, recruit)
+
+# Death
+tree.lookup <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 3) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  filter(sample.pd == 3)
+
+# identify trees that show as dead in the final smapling period
+death.trees <- tree.age.traj %>%
+  filter(DA == 0 & sample.pd != 1)%>%
+  select(UniqueID)%>%
+  distinct()
+
+death <- tree.age.traj %>%
+  filter(sample.pd !=3) %>%
+  filter(UniqueID %in% death.trees$UniqueID) %>%
+  filter(DA == 1) %>%
+  group_by(UniqueID) %>%
+  slice_max(order_by = sample.pd, n = 1)%>%
+  ungroup()%>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    Year_diff = Year - lag(Year)
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  filter(PLOT %!in% c("FP5A", "FP5D")) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>% 
+  # filter out species that are way too big!
+  #filter(DBH < 9) %>%
+  #left_join(dbh.25) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass= sum(above_dbh_biomass)/first(sample.area)*-1, 
+   n_trees = n()*-1) %>%
+  mutate(type = "Death")
+
+
+# join them all and get rid of the few sites that burned during and FP5A and FP5D  
+# need to add in the year component of htis figure!!
+age_final <- ages %>%
+  ungroup()%>%
+  select(PLOT, Year, age)%>%
+  group_by(PLOT)%>%
+  slice_max(Year, n = 1) %>%
+  mutate(age3 = 2026 - age)
+
+age_diff <- ages %>%
+  filter(sample.pd!= 2) %>%
+  group_by(PLOT)%>%
+  summarize(min_yr = min(Year), max_yr = max(Year)) %>%
+  mutate(age_diff= max_yr-min_yr) %>%
+  ungroup()%>%
+  select(PLOT, age_diff)
+
+# add in the age
+trees <- rbind(growth, recruit, death) %>%
+  left_join(age_final)%>%
+  filter(!is.na(age3)) %>%
+  group_by(SPECIES, age3) %>%
+  mutate(
+    plot_num = as.numeric(factor(PLOT)),
+    x_plot = age3 + (plot_num - mean(plot_num)) * 0.2
+  ) %>%
+  ungroup() %>%
+  left_join(age_diff)%>%
+  mutate(age_diff = ifelse(age_diff==0 & age_category == "Young", 10, age_diff))%>%
+  filter(Year %!in% c(2018, 2019)) %>%
+  mutate(biomass_yr = biomass/age_diff) 
+  
+
+# Plot and biomass 
+ggplot(trees, aes(x= reorder(PLOT, age3), biomass_yr,  fill = type))+
+  geom_col() +
+  theme_bw()+
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~SPECIES, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+# Plot and biomass - species
+ggplot(trees, aes(x= reorder(PLOT, age3), biomass_yr,  fill = SPECIES))+
+  geom_col() +
+  theme_bw()+
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~type + canopy, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+ggplot(trees, aes(x= reorder(PLOT, age3), biomass_yr,  color = type, fill = SPECIES))+
+  geom_col() +
+  theme_bw()+
+  scale_color_manual(values = c("black", "red", "blue")) +
+  scale_fill_manual(values = c("#E6AB02", "#66A61E", "darkgreen", "darkgoldenrod")) +
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~ canopy, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+ggplot(trees, aes(x= reorder(PLOT, age3), n_trees/sample.area,  fill = SPECIES))+
+  geom_col() +
+  theme_bw()+
+  ylab("No trees/m2")+
+  facet_wrap(~type + canopy, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+# Plot and biomass, adding in canopy
+ggplot(trees, aes(x= reorder(PLOT, age3), biomass_yr,  fill = type))+
+  geom_col() +
+  theme_bw()+
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~SPECIES + canopy, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+
+# plot and number of trees
+ggplot(trees, aes(x= reorder(PLOT, age3), n_trees,  fill = type))+
+  geom_col() +
+  theme_bw()+
+  facet_wrap(~SPECIES, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+# more of a continuous scale
+ggplot(trees, aes(
+  x = x_plot,
+  y = biomass,
+  fill = type,
+  group = PLOT
+)) +
+  geom_col(width = 0.35) +
+  theme_bw() +
+  facet_wrap(~SPECIES, scales = "free") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+# each fraction individually with time
+ggplot(trees, aes(age3, biomass_yr, color = log10(abs(n_trees/sample.area))))+
+  geom_point()+
+  theme_bw()+
+  scale_color_viridis_c() +
+  facet_wrap(~type + SPECIES, scales = "free")
+
+```
+
+## scaling up demographics to stand level
+```{r}
+glimpse(trees)
+unique(trees$sample.pd)
+
+stand.level <- trees %>%
+  ungroup()%>%
+  group_by(Network, PLOT, canopy, sample.area, age_category, age_diff, type, age3) %>%
+  summarize(
+    # total number of trees in each class
+    tot_trees = sum(n_trees),
+    # total biomass
+    tot_bio_m2 = sum(biomass), tot_bio_m2_yr = sum(biomass_yr)
+  ) %>%
+  ungroup()%>%
+  # create a new variable for trees/area
+  mutate(tot_trees_m2 = tot_trees/sample.area)
+
+glimpse(stand.level)
+
+ggplot(stand.level, aes(x= reorder(PLOT, age3), tot_bio_m2_yr,  fill = type))+
+  geom_col() +
+  theme_bw()+
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~canopy, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+# each fraction individually with time
+ggplot(stand.level, aes(age3, tot_bio_m2_yr, color = log10(abs(tot_trees_m2))))+
+  geom_point()+
+  theme_bw()+
+  scale_color_viridis_c() +
+  facet_wrap(~type + canopy, scales = "free")
+
+```
+
+
+# leaving this 
+- what happened to bdm1
+- check proportion of white spruce biomass in stand for lwo rates
+- site with a lot of death (particularly with poptre) - what is coming in, is there a lot of loss
+
+- need to look at stand biomass overall - as apool vs. demographic change and BA and maybe structure of the stand - g/m2
+- death as a rate, is that appropriate? doing it
+- like H Alexander - charactersitics of the different tree in different stands...or just a table of the stand characteristics by age class adn canopy type. could also look at a graph, but just like density, diameter/size, basal area
+- compare ANPP values from H. Alexander to mine!
+competition on growth and mortality - stand basal area and stand density index (N x(DBHmean/25.4)^1.605) where N is number of trees per hectare adn dbh mean is the quadratic mean of D/bh in cm
+- maybe use climateNA to extract climate
+- will have more 5 year increments - so can compare how different the two five year periods are to one another - this is where the climate might become more interesting to compare the two different periods...but also not directly comparable between teh sites, so will have to be specific
 
 # 6. Stand composition
 
