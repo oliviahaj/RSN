@@ -34,7 +34,7 @@ rm(list = ls()); gc()
 # Read in Data
 ```{r}
 ## RSN Datasets
-rsn <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/QAQC_Data/Updated/RSN_Inventory_QAQC_Final_2026-04-09.csv')
+rsn <- read.csv('/Users/olhajek/Desktop/2026 Data/QAQC_Data/Updated/RSN_Inventory_QAQC_Final_2026-08-11.csv')
 
 site.yrs <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/Data_checks/site_years.csv')
 
