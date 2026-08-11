@@ -201,7 +201,7 @@ all <- all_site2 %>%
   DOWN = ifelse(DBH == -9999, 0, 1),
   DBH = ifelse(is.na(DBH), -8888, DBH))%>%
   mutate(UniqueID = paste(SITE,PLOT,TREE, sep="_"), 
-         Date = NA_character_, DA = ifelse(DBH %in% c(-7777, -9999), 0, 1)) %>%
+         DATE = "6/15/2026", DA = ifelse(DBH %in% c(-7777, -9999), 0, 1)) %>%
     # Drop these two rows because they were entered wrongly and they've been updated in the previous section
     filter(UniqueID %!in% c("UP4C_2_30", "UP4C_2_31"))
 
@@ -215,4 +215,38 @@ unique(all$LEAN)
 # TREE 357 is the old 26 in UP4A Plot 1 - this doesn't seem to be updated in the final script either
 # deifnitley some tag changes that should reflect on 
 
+
+# going to join this with the old data frame and then export 
+current_rsn <- read.csv(
+  '/Users/olhajek/Desktop/2026 Data/Raw_Data/320_TreeInventory_1989-2025FinalforJasonRecentUpdates021126.csv',
+  stringsAsFactors = FALSE, encoding = "latin1"
+)
+
+# join teh two
+glimpse(current_rsn)
+glimpse(all)
+# missing PLOT.AREA..m.., LOCATION, SEVERITY, DAMAGE
+
+all.join <- all %>%
+  mutate(
+    PLOT.AREA..m.. = 100, 
+    LOCATION = "", SEVERITY = "", DAMAGE = "", 
+      TREE = as.character(TREE),
+      TOP = as.character(TOP),
+      DA = as.integer(DA)
+  )
+
+rsn.join <- current_rsn %>%
+  mutate(
+    LEAN = as.character(LEAN),
+    DA = as.integer(DA),
+    DOWN = as.character(DOWN),
+    BOWED = as.character(BOWED)
+  ) 
+
+joined <- rbind(rsn.join, all.join)
+
+#write.csv(joined, '/Users/olhajek/Desktop/2026 Data/Raw_Data/320_TreeInventory_1989-2026_OLH.csv', row.names = F)
+# proceeded to make two updates with tree FP5D_1_2947 and BDM1_1_1054
+# need to update the dates
 
