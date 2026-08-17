@@ -2,26 +2,25 @@
 title: "Preliminary Analysis of RSN-CAFI Data"
 author: "OLH"
 date: "2026-08-03"
-output: 
+output:
   bookdown::html_document2:
     code_folding: hide
-    toc: TRUE
+    toc: true
     toc_depth: 4
-    toc_float: TRUE
-    collapsed: TRUE
+    toc_float: true
+    collapsed: true
     theme: spacelab
-    fig_caption: TRUE
-    number_sections: FALSE
-    lightbox: true
+    fig_caption: true
+    number_sections: false
 ---
 # Setup
 <style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.align="center")
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.align="center", out.width = "100%")
 
 options(repos = c(CRAN = "http://cran.rstudio.com"))
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot)
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot, lightbox)
 
 # Clear environment + collect garbage
 rm(list = ls()); gc()
@@ -48,12 +47,12 @@ rm(list = ls()); gc()
   - Still need to do a deeper dive on the soil org depth data and how compiled this is
   
 - Climate
-  - Climate NA; have this extracted. 
+  - Still need to do this. 
   
 - JFSP Seedling data
   - have this for the different time points
   
-- CAFI seedling data - haven't looked at this at all, but looks like should exist. 
+- CAFI seedling data - haven't looked at this at all, but looks like it exists. 
   
 
 # 1. Join inventory and stand age data
@@ -63,9 +62,10 @@ rm(list = ls()); gc()
 ```{r}
 # Read in the data
 ## Inventory data
-trees <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/RSN_CAFI_merged.csv")
+trees <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/RSN_CAFI_merged.csv") %>%
+  mutate(DBH = ifelse(Network == "CAFI", DBH *2.54, DBH))
 
-## Tree ages
+## Tree ages## Tree agesdb_has_table()
 ages <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/continuous_tree_ages.csv") 
 
 # Create a category for stand age based on the first measurement
@@ -381,6 +381,7 @@ ggplot(data = subset(data.summary, data.summary$age_category == "Young"), aes(sa
 
 ```
 
+
 ## Stand age
 - just focusing on RSN to look at these dynamics BUT could do them all with the RSN and CAFI merged sites...will do 
 - what is cbsnbc as a SPECIES?
@@ -510,8 +511,33 @@ ggplot(data = dst.38,
   geom_col() +
   theme_bw() +
   labs(x = "Biomass (g/m2)", y = "PLOT", fill = "Species") +
-  facet_wrap(~age_category, scales = "free_y", nrow=3) +
+  facet_wrap(~age_category, scales = "free_y") +
   ggtitle("Alive Trees in Last Sampling - DBH > 3.8")
+
+
+
+```
+
+## CAFI Deep Dive
+```{r}
+# relationship between number of trees and biomass by network and age
+ggplot(data = subset(dst.2, dst.2$Network == "CAFI"), aes(no_trees_m2, biomass_m2, color = Network))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_category)
+
+cafi <- tree.age.traj %>%
+  filter(Network == "CAFI") %>%
+  group_by(Network, sample.pd, age_category, canopy, PLOT, DA, SUBP, SPECIES, Plot.Area.M2)%>%
+  summarize(no_trees = n(), biomass = sum(above_dbh_biomass, na.rm = T)) %>%
+  mutate(no_trees_m2 = no_trees/Plot.Area.M2, biomass_m2 = biomass/Plot.Area.M2)%>%
+  filter(sample.pd == 3)
+
+
+ggplot(cafi, aes(no_trees_m2, biomass_m2, color = canopy))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~age_category)
 
 ```
 
@@ -1436,6 +1462,356 @@ ggplot(changes, aes(x= reorder(PLOT, age3), biomass_yr,  fill = SPECIES))+
 - new RSN data - follow up with Jamie now?
 
 Particularly with decimation of aspen stands, what are the consequences for stand productivity if we lose all of these trees both from the timber production and carbon storage persepctive?
+
+
+# Demographics 1,2, and 3
+
+```{r}
+# Growth
+growth12 <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 2) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+    Year_before = lag(Year), 
+    biomass_diff = (above_dbh_biomass - lag(above_dbh_biomass)),
+    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
+    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff, 
+    age2 = Year - age
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3, this will be so we can get all of the BA and biomass of the live trees by species
+  filter(sample.pd == 2) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>%
+# get rid of the crazy high stuff - this will also get rid of the NAs!
+  filter(Annual_Growth < 2 & Annual_Growth > -0.5) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass = sum(biomass_diff)/first(sample.area), 
+   n_trees = n()) %>%
+  mutate(type = "Growth")
+
+
+# Recruitment
+# below dbh to subtract out...
+dbh.25 <- tree.age.traj %>%
+  filter(DBH == 2.5) %>%
+  select(SPECIES, DBH) %>%
+  unique() %>%
+  mutate(DBH2 = DBH - 0.01, biomass = allom.dbh(SPECIES, DBH2)) %>%
+  select(-DBH)
+
+recruit12 <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 2) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3 that have an NA growth rate from period one
+  filter(is.na(Annual_Growth)) %>%
+  filter(sample.pd == 2) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  filter(PLOT %!in% c("FP5A", "FP5D")) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>% 
+  # filter out species that are way too big!
+  filter(DBH < 9) %>%
+  #left_join(dbh.25) %>%
+  #mutate(biomass_above = above_dbh_biomass - biomass) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass= sum(above_dbh_biomass)/first(sample.area), 
+   n_trees = n()) %>%
+  mutate(type = "Recruitment")
+
+# Death
+tree.lookup <- tree.age.traj %>%
+  filter(sample.pd == 1 | sample.pd == 2) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  filter(sample.pd == 2)
+
+# identify trees that show as dead in the final smapling period
+death.trees <- tree.age.traj %>%
+  filter(DA == 0 & sample.pd == 2)%>%
+  select(UniqueID)%>%
+  distinct()
+
+death12 <- tree.age.traj %>%
+  filter(sample.pd ==1) %>%
+  filter(UniqueID %in% death.trees$UniqueID) %>%
+  filter(DA == 1) %>%
+  group_by(UniqueID) %>%
+  slice_max(order_by = sample.pd, n = 1)%>%
+  ungroup()%>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    Year_diff = Year - lag(Year)
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  filter(PLOT %!in% c("FP5A", "FP5D")) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>% 
+  # filter out species that are way too big!
+  #filter(DBH < 9) %>%
+  #left_join(dbh.25) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass= sum(above_dbh_biomass)/first(sample.area)*-1, 
+   n_trees = n()*-1) %>%
+  mutate(type = "Death")
+
+# join them all and get rid of the few sites that burned during and FP5A and FP5D  
+# need to add in the year component of htis figure!!
+age_final12 <- ages %>%
+  ungroup()%>%
+  select(PLOT, Year, age)%>%
+  group_by(PLOT)%>%
+  slice_max(Year, n = 1) %>%
+  mutate(age3 = 2018 - age)
+
+age_diff12 <- ages %>%
+  filter(sample.pd!= 3) %>%
+  group_by(PLOT)%>%
+  summarize(min_yr = min(Year), max_yr = max(Year)) %>%
+  mutate(age_diff= max_yr-min_yr) %>%
+  ungroup()%>%
+  select(PLOT, age_diff)
+
+# add in the age
+trees12 <- rbind(growth12, recruit12, death12) %>%
+  left_join(age_final12)%>%
+  filter(!is.na(age3)) %>%
+  group_by(SPECIES, age3) %>%
+  mutate(
+    plot_num = as.numeric(factor(PLOT)),
+    x_plot = age3 + (plot_num - mean(plot_num)) * 0.2
+  ) %>%
+  ungroup() %>%
+  left_join(age_diff12)%>%
+  mutate(age_diff = ifelse(age_diff==0 & age_category == "Young", 5, age_diff))%>%
+  #filter(Year %!in% c(2018, 2019)) %>%
+  mutate(biomass_yr = biomass/age_diff, period = "1to2") 
+
+
+# Growth
+growth23 <- tree.age.traj %>%
+  filter(sample.pd == 3 | sample.pd == 2) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+    Year_before = lag(Year), 
+    biomass_diff = (above_dbh_biomass - lag(above_dbh_biomass)),
+    biomass_change = (above_dbh_biomass - lag(above_dbh_biomass))/Year_diff, 
+    biomass_RGR = (log(above_dbh_biomass) - log(lag(above_dbh_biomass)))/Year_diff, 
+    age2 = Year - age
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3, this will be so we can get all of the BA and biomass of the live trees by species
+  filter(sample.pd == 3) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>%
+# get rid of the crazy high stuff - this will also get rid of the NAs!
+  filter(Annual_Growth < 2 & Annual_Growth > -0.5) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass = sum(biomass_diff)/first(sample.area), 
+   n_trees = n()) %>%
+  mutate(type = "Growth")
+
+
+# Recruitment
+# below dbh to subtract out...
+dbh.25 <- tree.age.traj %>%
+  filter(DBH == 2.5) %>%
+  select(SPECIES, DBH) %>%
+  unique() %>%
+  mutate(DBH2 = DBH - 0.01, biomass = allom.dbh(SPECIES, DBH2)) %>%
+  select(-DBH)
+
+recruit23 <- tree.age.traj %>%
+  filter(sample.pd == 3 | sample.pd == 2) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3 that have an NA growth rate from period one
+  filter(is.na(Annual_Growth)) %>%
+  filter(sample.pd == 3) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  filter(PLOT %!in% c("FP5A", "FP5D")) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>% 
+  # filter out species that are way too big!
+  filter(DBH < 9) %>%
+  #left_join(dbh.25) %>%
+  #mutate(biomass_above = above_dbh_biomass - biomass) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass= sum(above_dbh_biomass)/first(sample.area), 
+   n_trees = n()) %>%
+  mutate(type = "Recruitment")
+
+# join growht and recruitment
+
+# Death
+tree.lookup <- tree.age.traj %>%
+  filter(sample.pd == 2 | sample.pd == 3) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  filter(sample.pd == 3)
+
+# identify trees that show as dead in the final smapling period
+death.trees <- tree.age.traj %>%
+  filter(DA == 0 & sample.pd == 3)%>%
+  select(UniqueID)%>%
+  distinct()
+
+death23 <- tree.age.traj %>%
+  filter(sample.pd ==2) %>%
+  filter(UniqueID %in% death.trees$UniqueID) %>%
+  filter(DA == 1) %>%
+  group_by(UniqueID) %>%
+  slice_max(order_by = sample.pd, n = 1)%>%
+  ungroup()%>%
+  mutate(
+    # sample area
+    sample.area = Plot.Area.M2 * sampled_plots_period, 
+    Year_diff = Year - lag(Year)
+  ) %>%
+  mutate(site_yr = paste(PLOT, sample.rd, sep="_")) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  filter(PLOT %!in% c("FP5A", "FP5D")) %>%
+  filter(SPECIES %!in% c("POPBAL", "LARLAR", "PICEA")) %>% 
+  # filter out species that are way too big!
+  #filter(DBH < 9) %>%
+  #left_join(dbh.25) %>%
+  group_by(Network, PLOT, sample.pd, SPECIES, canopy, sample.area, age_category) %>%
+  summarize(
+   biomass= sum(above_dbh_biomass)/first(sample.area)*-1, 
+   n_trees = n()*-1) %>%
+  mutate(type = "Death")
+
+# join them all and get rid of the few sites that burned during and FP5A and FP5D  
+# need to add in the year component of htis figure!!
+age_final23 <- ages %>%
+  ungroup()%>%
+  select(PLOT, Year, age)%>%
+  group_by(PLOT)%>%
+  slice_max(Year, n = 1) %>%
+  mutate(age3 = 2026 - age)
+
+age_diff23 <- ages %>%
+  filter(sample.pd!= 2) %>%
+  group_by(PLOT)%>%
+  summarize(min_yr = min(Year), max_yr = max(Year)) %>%
+  mutate(age_diff= max_yr-min_yr) %>%
+  ungroup()%>%
+  select(PLOT, age_diff)
+
+# add in the age
+trees23 <- rbind(growth23, recruit23, death23) %>%
+  left_join(age_final23)%>%
+  filter(!is.na(age3)) %>%
+  group_by(SPECIES, age3) %>%
+  mutate(
+    plot_num = as.numeric(factor(PLOT)),
+    x_plot = age3 + (plot_num - mean(plot_num)) * 0.2
+  ) %>%
+  ungroup() %>%
+  left_join(age_diff23)%>%
+  mutate(age_diff = ifelse(age_diff==0 & age_category == "Young", 5, age_diff))%>%
+  #filter(Year %!in% c(2018, 2019)) %>%
+  mutate(biomass_yr = biomass/age_diff, 
+         period = "2to3") 
+
+
+## trees
+# filter these out because don't have all three sampling periods
+three <- trees.traj %>%
+  ungroup()%>%
+  select(c(PLOT, sample.pd)) %>%
+  distinct() %>%
+  group_by(PLOT)%>%
+  summarize(n=n()) %>%
+  filter(n==3)
+
+
+trees123 <- rbind(trees12, trees23) %>%
+  filter(PLOT %in% three$PLOT)
+
+# Plot and biomass 
+ggplot(trees123, aes(x= reorder(PLOT, age3), biomass_yr,  fill = type))+
+  geom_col() +
+  theme_bw()+
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~SPECIES + period, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+# Plot and biomass - species
+ggplot(trees123, aes(x= reorder(PLOT, age3), biomass_yr,  fill = SPECIES))+
+  geom_col() +
+  theme_bw()+
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~type + canopy+period, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+# Plot and biomass - species - age category
+# ggplot(trees, aes(x= reorder(PLOT, age3), biomass_yr,  fill = SPECIES))+
+#   geom_col() +
+#   theme_bw()+
+#   ylab("Biomass - g/m2/yr")+
+#   facet_wrap(~type + age_category, scales = "free")+
+#     theme(
+#     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+#   )
+
+
+ggplot(trees123, aes(x= reorder(PLOT, age3), biomass_yr,  color = type, fill = SPECIES))+
+  geom_col() +
+  theme_bw()+
+  scale_color_manual(values = c("black", "red", "blue")) +
+  scale_fill_manual(values = c("#E6AB02", "#66A61E", "darkgreen", "darkgoldenrod")) +
+  ylab("Biomass - g/m2/yr")+
+  facet_wrap(~ canopy + period, scales = "free")+
+    theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+  
+```
 
 
 
