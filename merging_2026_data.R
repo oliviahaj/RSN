@@ -43,7 +43,6 @@ read_tree_sheet <- function(path) {
   data <- raw[-c(1, 2), ]
   names(data) <- col_names
   
-  
   # Everything was read as text above -- convert numeric-looking columns back
   data <- type_convert(data, guess_integer = FALSE)
   
@@ -211,6 +210,24 @@ unique(all$SPECIES)
 unique(all$TOP)
 unique(all$LEAN)
 
+# There are still a few DBH to update where it was read in as a DATE versus a numeric format
+all <- all %>%
+  mutate(DBH = case_when(
+    UniqueID == "GSM2_6_877" ~ "9.3",
+    UniqueID == "UP4A_13_888"~ "8.7",
+    UniqueID == "TRM4_4_171"~ "7.3",
+    UniqueID == "TRM4_2_91"~ "5.5",
+    UniqueID == "BDM1_14_1531"~ "5.3",
+    UniqueID == "BDM1_11_1390"~ "4.7",
+    UniqueID == "BDM1_13_1461"~ "4.5",
+    UniqueID == "TRM4_8_319"~ "4.5",
+    UniqueID == "WCM1_3_472"~ "3.5",
+    UniqueID == "BDM1_14_1540"~ "3.4",
+    UniqueID == "UP4D_8_371"~ "2.7",
+    UniqueID == "YRM1_7_2520"~ "2.6",
+    TRUE ~ DBH
+  ))
+
 # NOTES
 # TREE 357 is the old 26 in UP4A Plot 1 - this doesn't seem to be updated in the final script either
 # deifnitley some tag changes that should reflect on 
@@ -246,7 +263,25 @@ rsn.join <- current_rsn %>%
 
 joined <- rbind(rsn.join, all.join)
 
-#write.csv(joined, '/Users/olhajek/Desktop/2026 Data/Raw_Data/320_TreeInventory_1989-2026_OLH.csv', row.names = F)
-# proceeded to make two updates with tree FP5D_1_2947 and BDM1_1_1054
-# need to update the dates
+# Fix a few notes based on 2026 data
+# proceeded to make two updates with tree FP5D_1_2947 (was 1194) and BDM1_1_1054 (2899)
+glimpse(joined)
+joined.2 <- joined %>%
+  mutate(TREE = case_when(
+    UniqueID == "FP5D_1_1194" ~ "2947", 
+    UniqueID == "BDM1_1_1054" ~ "2899", 
+      TRUE ~ TREE
+  ),
+    UniqueID = case_when(
+      UniqueID == "FP5D_1_1194" ~ "FP5D_1_2947", 
+      UniqueID == "BDM1_1_1054" ~ "BDM1_1_2899", 
+      TRUE ~ UniqueID
+  )) %>%
+  filter(!(UniqueID == "BDM1_1_2899" & DBH == "-8888"))
+  
+
+## Export the raw data
+#write.csv(joined.2, '/Users/olhajek/Desktop/2026 Data/Raw_Data/320_TreeInventory_1989-2026_OLH.csv', row.names = F)
+
+
 
