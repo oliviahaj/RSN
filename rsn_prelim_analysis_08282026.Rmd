@@ -1,0 +1,61 @@
+---
+title: "Preliminary Analysis of RSN Data"
+author: "OLH"
+date: "2026-08-28"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    collapsed: true
+    theme: spacelab
+    fig_caption: true
+    number_sections: false
+---
+# Setup
+<style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.align="center", out.width = "100%")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot, lightbox)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+# Outline
+
+o	Case study of the BNZ sites? Are trees growing faster? What site characteristics influence these? Demographics?
+o	Stand grwoht – what matters: is the productivity of a few vs. many and how does that change voer time? Relationship between density and biomass and size and time
+
+•	How do birth (recruitment) and mortality, alongside individual growth, contribute to stand-level growth and biomass accumulation?
+•	How do these demographic contributions change through succession?
+•	Is competition or facilitation driving these dynamics? Asymmetric competition between growth trajectory and death.
+•	How do pests and pathogens alter these patterns?
+
+•	Deciduous trees peak earlier than black spruce — how should that reshape current young / intermediate / mature classifications, which were built around BS? more broadly, the temporal trajectory of the boreal C sink
+•	What are the drivers of growth, and how do those drivers vary with stand age and species?
+•	How much variation in growth is explained by climate vs. age and species — i.e., is climate more important than stand-level dynamics?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
