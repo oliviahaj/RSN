@@ -28,14 +28,24 @@ rsn.trees.2 <- rsn.trees %>%
   group_by(Plot, SubP, Sample_Number, Species, Source) %>%
   #group_by(Plot, YearSampled, Source) %>%
   summarize(n = n(), mean_tree = mean(TreeYear, na.rm = TRUE), min_tree = min(TreeYear), max_tree = max(TreeYear),  
-            mean_rc_tree = mean(Ring_Count, na.rm=TRUE), diff = max_tree - min_tree)
+            mean_rc_tree = mean(Ring_Count, na.rm=TRUE), diff = max_tree - min_tree) %>%
+  mutate(SPECIES = case_when(
+    Species == "LALA" ~ "LARLAR", 
+    Species == "LALA" ~ "LARLAR",
+    Species == "PICLGLA" ~ "PICGLA",
+    Species == "Picmar" ~ "PICMAR",
+    Species == "PIGL" ~ "PICGLA",
+    Species == "PIMA" ~ "PICMAR",
+    TRUE ~ Species
+  ))
 
 rsn.trees.3 <- rsn.trees.2 %>%
   ungroup()%>%
   mutate(AGE = 2026 - mean_tree) %>%
   group_by(Plot) %>%
   summarize(n = n(), mean_ty = mean(mean_tree, na.rm = TRUE), min_ty = min(mean_tree), max_ty = max(mean_tree),  mean_RC = mean(mean_rc_tree, na.rm=TRUE),
-            mean_AGE = mean(AGE, na.rm = TRUE), median_AGE = median(AGE, na.rm = TRUE), min_AGE = min(AGE), max_AGE = max(AGE), sd_AGE = sd(AGE, na.rm =TRUE)) %>%
+            mean_AGE = mean(AGE, na.rm = TRUE), median_AGE = median(AGE, na.rm = TRUE), min_AGE = min(AGE), 
+            max_AGE = max(AGE), sd_AGE = sd(AGE, na.rm =TRUE)) %>%
   mutate(Notes = case_when(
     Plot == "WCM1" ~ "Kept Jamie found data; seemed to repeat data",
     Plot == "WCM2" ~ "Kept Jamie found data; seemed to repeat data",
@@ -44,7 +54,24 @@ rsn.trees.3 <- rsn.trees.2 %>%
     TRUE ~ NA
   ))
 
+# Here we need to make some more decisions on which tree years to use, particularly for sites that have a huge range, 
+# will in general use the oldest tree unless cluster is not around that at all
+# then need to check that CAFI ages were done at the tree level first too!
+# I think will keep mean and max and try with both and see if it really makes a difference
+rsn.diff <- rsn.trees.2 %>%
+  ungroup()%>%
+  group_by(Plot) %>%
+  summarize(min_ty = min(mean_tree), max_ty = max(mean_tree))%>%
+  mutate(diff = max_ty - min_ty) %>%
+  filter(diff > 50)
+
+ggplot(data = subset(rsn.trees.2, rsn.trees.2$Plot %in% rsn.diff$Plot), aes(mean_tree, Plot, color = SPECIES))+
+  geom_point()+
+  theme_bw() 
+
+
 # Read in CAFI
+# CAFI tree ages have definitely not been summarized by tree first!
 
 cafi <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/Tree_Age_Data/Compiled/CAFI_Ages_Summarized.csv")
 
