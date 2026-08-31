@@ -71,13 +71,13 @@ ggplot(data = subset(rsn.trees.2, rsn.trees.2$Plot %in% rsn.diff$Plot), aes(mean
 
 
 # Read in CAFI
-# CAFI tree ages have definitely not been summarized by tree first!
+# CAFI tree ages  - don't think need to summarize by tree; it seems that there is only one tree per sample, so should be ready to join!
 
 cafi <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/Tree_Age_Data/Compiled/CAFI_Ages_Summarized.csv")
 
 # Join Age summary file
-str(cafi)
-str(rsn.trees.2)
+glimpse(cafi)
+glimpse(rsn.trees.3)
 
 # Fix the two dataframe to merge
 ## CAFI
@@ -94,9 +94,10 @@ cafi.2 <- cafi %>%
     Plot == 1088 ~ "Removed Isabel Munoz cores; seemed much lower",
     TRUE ~ NA
   ),
-  Plot = as.character(Plot))
+  Plot = as.character(Plot)) %>%
+  select(-c(mean_med, range_AGE))
 
-rsn.3 <- rsn.trees.2 %>%
+rsn.3 <- rsn.trees.3 %>%
   select(-c(sd_AGE, mean_RC))
 
 str(rsn.3)
@@ -104,4 +105,4 @@ str(cafi.2)
 tree.ages <- rbind(rsn.3, cafi.2)
 
 # Write csv - save!
-write.csv(tree.ages, "/Users/olhajek/Desktop/RSN/Tree_Age_Data/Compiled/RSN_CAFI_Summarized_Ages.csv", row.names = FALSE)
+write.csv(tree.ages, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/Tree_Age_Data/Compiled/RSN_CAFI_Summarized_Ages.csv", row.names = FALSE)
