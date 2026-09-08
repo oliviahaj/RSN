@@ -138,6 +138,6 @@ clim.2 <- clim %>%
   left_join(annual.vars)
 
 # export climate data
-write.csv(clim.2, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/harmonized_climateNA.csv", row.names = F)
+#write.csv(clim.2, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/harmonized_climateNA.csv", row.names = F)
 
 

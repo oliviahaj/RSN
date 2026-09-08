@@ -79,7 +79,7 @@ burns.2 <- burns %>%
 
 ages.2 <- ages %>%
   rename(PLOT = Plot) %>%
-  select(-c(median_AGE, min_AGE, max_AGE, range_AGE, mean_med))
+  select(-c(median_AGE, min_AGE, max_AGE))
 
 age.combo <- full_join(burns.2, ages.2) %>%
   # check difference between mean age and the burn year
