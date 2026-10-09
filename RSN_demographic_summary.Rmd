@@ -1,0 +1,197 @@
+---
+title: "RSN_Analysis_10082026"
+author: "OLH"
+date: "2026-10-08"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    collapsed: true
+    theme: spacelab
+    fig_caption: true
+    number_sections: false
+---
+# Setup
+<style>h1 {font-size: 24pt; } h2 {font-size: 20pt; } h3 {font-size: 18pt; } h4 {font-size: 16pt; } h5 {font-size: 14pt; } h6 {font-size: 12pt; } </style> 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, dpi = 600, progress = FALSE, cache = FALSE, fig.align="center", out.width = "100%")
+
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, googledrive, broom, supportR, lubridate,  gt, data.table, readxl, corrplot, car, emmeans,knitr, cowplot, lightbox)
+
+# Clear environment + collect garbage
+rm(list = ls()); gc()
+
+# create a negate function
+`%!in%` = Negate(`%in%`)
+
+```
+
+```{r}
+# Read in the data
+## Inventory data
+trees <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/RSN_CAFI_merged.csv")
+
+## Tree ages## Tree agesdb_has_table()
+ages <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/continuous_tree_ages.csv") 
+
+```
+
+
+# Quick data clean
+```{r}
+qaqc <- trees %>%
+  filter(QAQC_Action %in% c("Flag_LastObsExtremeDip",
+                            # going to keep this code in right now, but not quite how this code is fully being populated
+                            # "Flag_NewGrowth_Maybe?", 
+                            "Flag_LastObs_SpeciesGrowthSpike"))
+
+qaqctrees <- trees %>%
+  filter(UniqueID %in% qaqc$UniqueID)
+
+trees.2 <- trees %>%
+  filter(UniqueID %!in% qaqc$UniqueID) %>%
+  # this is a single observation that is in the wrong year and doesn't seem quite right
+  filter(UniqueID != "WCM2_14_2939")
+
+```
+
+# Create site-level table
+```{r}
+glimpse(ages)
+age.max <- ages %>%
+  group_by(PLOT) %>%
+  slice_max(Year, n = 1) %>%
+  select(PLOT, age)
+
+glimpse(trees.2)
+
+# live trees
+tree.summary.species <- trees.2 %>%
+  left_join(ages) %>%
+  filter(DA!=0) %>%
+  mutate(area.sampled = Plot.Area.M2 * sampled_plots_period, 
+         BA = 0.00007854 * (DBH)^2) %>%
+  group_by(SPECIES,Year, PLOT, area.sampled) %>%
+  summarize(n = n(), mean_dbh = mean(DBH, na.rm = T), se_dbh = sd(DBH, na.rm = T)/sqrt(n()), 
+            ba = sum(BA, na.rm = T)) %>%  
+  ungroup() %>%
+  pivot_wider(id_cols = c(Year, PLOT, area.sampled),
+              names_from = SPECIES,
+              values_from = c(n, mean_dbh, se_dbh, ba),
+              names_glue = "{SPECIES}_{.value}") %>%
+  mutate(across(ends_with(c("_n", "_ba", "se_dbh", "mean_dbh")), ~replace_na(.x, 0)))
+
+tree.summary <- trees.2 %>%
+  left_join(ages) %>%
+  filter(DA!=0) %>%
+  mutate(area.sampled = Plot.Area.M2 * sampled_plots_period, 
+         BA = 0.00007854 * (DBH)^2) %>%
+  group_by(Year, PLOT, area.sampled) %>%
+  summarize(n = n(), mean_dbh = mean(DBH, na.rm = T), se_dbh = sd(DBH, na.rm = T)/sqrt(n()), 
+            ba = sum(BA, na.rm = T)) %>%  
+  ungroup() 
+
+tree.sum <- left_join(tree.summary, tree.summary.species)
+
+# Recruitment  
+recruit <- trees.2%>%
+  left_join(ages) %>%
+  filter(!is.na(DBH) & DA == 1) %>%
+  group_by(UniqueID) %>%
+  arrange(sample.pd, .by_group = TRUE) %>%
+  mutate(
+    # sample area
+   area.sampled = Plot.Area.M2 * sampled_plots_period, 
+    lag_DBH = lag(DBH),
+    # BA in m2
+        # BA in m2
+    BA = 0.00007854 * (DBH)^2,
+    BA_diff = BA - lag(BA),
+    Year_diff = Year - lag(Year),
+    Annual_Growth = (DBH - lag_DBH) / Year_diff,
+  ) %>%
+  ungroup() %>%
+  # filter to just look at smaple round 3 that have an NA growth rate from period one
+  filter(is.na(Annual_Growth)) %>%
+  filter(sample.pd != 1) %>%
+  # # filter FP5A for now because not qutie right and FP5D
+  # filter(site_yr %!in% c("FP5D_8", "FP5A_8")) %>%
+  # filter out species that are way too big!
+  filter(DBH < 8) %>%
+  #left_join(dbh.25) %>%
+  #mutate(biomass_above = above_dbh_biomass - biomass) %>%
+  group_by(PLOT, Year, SPECIES, area.sampled) %>%
+  summarize(
+   mean_dbh_rec = mean(DBH, na.rm= T),se_dbh_rec = sd(DBH, na.rm = T)/sqrt(n()), 
+   ba_rec = sum(BA), 
+   n_trees_rec = n()) %>%
+  ungroup() %>%
+  pivot_wider(id_cols = c(Year, PLOT, area.sampled),
+              names_from = SPECIES,
+              values_from = c(n_trees_rec, mean_dbh_rec, se_dbh_rec, ba_rec),
+              names_glue = "{SPECIES}_{.value}") %>%
+  mutate(across(ends_with(c("n_trees_rec", "mean_dbh_rec", "se_dbh_rec", "ba_rec")), ~replace_na(.x, 0))) %>%
+  mutate(tot_rec_trees = BETNEO_n_trees_rec + PICGLA_n_trees_rec + POPTRE_n_trees_rec + PICMAR_n_trees_rec + LARLAR_n_trees_rec + POPBAL_n_trees_rec  + PICEA_n_trees_rec, tot_ba_rec = BETNEO_ba_rec+ PICGLA_ba_rec +POPTRE_ba_rec + PICMAR_ba_rec+ LARLAR_ba_rec+ POPBAL_ba_rec + PICEA_ba_rec)
+
+# Death
+death.trees <- trees.2 %>%
+  left_join(ages) %>%
+  filter(DA == 0 & sample.pd != 1)%>%
+  select(UniqueID, SPECIES)%>%
+  distinct() 
+
+death <- trees.2%>%
+  left_join(ages)%>%
+  filter(UniqueID %in% death.trees$UniqueID) %>%
+  filter(DA == 1) %>%
+  filter(!is.na(DBH)) %>%
+  group_by(UniqueID) %>%
+  slice_max(order_by = sample.pd, n = 1)%>%
+  ungroup()%>%
+  mutate(
+    # sample area
+    area.sampled = Plot.Area.M2 * sampled_plots_period, 
+    BA = 0.00007854 * (DBH)^2,
+    Year_diff = Year - lag(Year)
+  ) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  #filter(site_yr %!in% c("FP5D_8", "FP5A_8")) %>%
+  group_by(PLOT, Year, SPECIES, area.sampled) %>%
+  summarize(
+   mean_dbh_death = mean(DBH, na.rm= T),se_dbh_death = sd(DBH, na.rm = T)/sqrt(n()), 
+   ba_death = sum(BA), 
+   n_trees_death = n()) %>%
+  ungroup() %>%
+  pivot_wider(id_cols = c(Year, PLOT, area.sampled),
+              names_from = SPECIES,
+              values_from = c(n_trees_death, mean_dbh_death, se_dbh_death, ba_death),
+              names_glue = "{SPECIES}_{.value}") %>%
+  mutate(across(ends_with(c("n_trees_death", "mean_dbh_death", "se_dbh_death", "ba_death")), ~replace_na(.x, 0))) %>%
+  mutate(tot_death_trees = BETNEO_n_trees_death + PICGLA_n_trees_death + POPTRE_n_trees_death + PICMAR_n_trees_death + LARLAR_n_trees_death + POPBAL_n_trees_death, tot_ba_death = BETNEO_ba_death+ PICGLA_ba_death +POPTRE_ba_death + PICMAR_ba_death+ LARLAR_ba_death+ POPBAL_ba_death)
+
+tree.sum2 <- left_join(tree.sum, recruit)
+
+tree.sum3 <- left_join(tree.sum2, death) 
+tree.sum4 <- left_join(tree.sum3, ages, by = c("Year", "PLOT"))
+
+write.csv(tree.sum4, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/large_tree_summarytable.csv", row.names = F)
+
+```
+
+
+# Make some graphs
+```{r}
+glimpse(tree.sum3)
+
+ggplot(tree.sum4, aes(mean_dbh, fill = Year)) +
+  geom_histogram(bins = 30, alpha = 0.6) +
+  facet_wrap(~sample.pd)+
+  theme_bw() 
+```
+
+# Change b/w first and last measurements based on age.
+
