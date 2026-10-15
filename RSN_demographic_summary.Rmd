@@ -67,39 +67,97 @@ age.max <- ages %>%
   slice_max(Year, n = 1) %>%
   select(PLOT, age)
 
+ggplot(age.max, aes(age))+
+  geom_histogram(binwidth = 10)+
+  theme_bw()
+
 glimpse(trees.2)
+```
+
+
+```{r}
+#FUNCTIONS FOR TREE ALLOMETRY 
+#Above DBH trees used in Alexander et al. 2012, equations from Yarie et al. 2007, function based on species and DBH (cm) measurement; output in g/tree
+allom.dbh <- function(x, y) {
+  treebiomass <- numeric(length(x)) 
+  for (i in seq_along(x)) {
+    if (x[i] == "BETNEO") {
+      a <- 164.18
+      b <- 2.29
+    } else if (x[i] == "PICGLA") {
+      a <- 96.77
+      b <- 2.40
+      # Making PICEA use the PICGLA allometry equations b/c PICEA is only at one site and no PICMAR recorded there, only PICMAR
+    } else if (x[i] == "PICEA") {
+      a <- 96.77
+      b <- 2.40
+    } else if (x[i] == "PICMAR") {
+      a <- 271.46
+      b <- 1.84
+    } else if (x[i] == "POPTRE") {
+      a <- 134.10
+      b <- 2.26
+    } else if (x[i] == "POPBAL") {
+      a <- 133.71
+      b <- 2.29
+    } else if (x[i] == "LARLAR") {
+      a <- 10^2.648
+      b <- 0.715
+    } else {
+      a <- NA
+      b <- NA
+    }
+    treebiomass[i] <- a * ((y[i])^b)
+  }
+  return(treebiomass) 
+}
+
+
+# decid vs. conifer set up
+decid <- c("POPTRE", "BETNEO", "POPBAL")
 
 # live trees
 tree.summary.species <- trees.2 %>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
   left_join(ages) %>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
   filter(DA!=0) %>%
   mutate(area.sampled = Plot.Area.M2 * sampled_plots_period, 
          BA = 0.00007854 * (DBH)^2) %>%
-  group_by(SPECIES,Year, PLOT, area.sampled) %>%
+  group_by(func_gp,Year, PLOT, area.sampled) %>%
   summarize(n = n(), mean_dbh = mean(DBH, na.rm = T), se_dbh = sd(DBH, na.rm = T)/sqrt(n()), 
-            ba = sum(BA, na.rm = T)) %>%  
+            ba = sum(BA, na.rm = T), mean_above_bio = sum(above_dbh_biomass, na.rm = TRUE)) %>%  
   ungroup() %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  mutate(dens = n/area.sampled, ba_m2 = ba/area.sampled, agb_m2 = mean_above_bio/area.sampled) %>%
   pivot_wider(id_cols = c(Year, PLOT, area.sampled),
-              names_from = SPECIES,
-              values_from = c(n, mean_dbh, se_dbh, ba),
-              names_glue = "{SPECIES}_{.value}") %>%
-  mutate(across(ends_with(c("_n", "_ba", "se_dbh", "mean_dbh")), ~replace_na(.x, 0)))
+              names_from = func_gp,
+              values_from = c(dens, mean_dbh, se_dbh, ba_m2, agb_m2),
+              names_glue = "{func_gp}_{.value}") %>%
+  mutate(across(ends_with(c("_dens", "_ba_m2", "mean_dbh", "se_dbh", "agb_m2")), ~replace_na(.x, 0)))
 
 tree.summary <- trees.2 %>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
   left_join(ages) %>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
   filter(DA!=0) %>%
   mutate(area.sampled = Plot.Area.M2 * sampled_plots_period, 
          BA = 0.00007854 * (DBH)^2) %>%
   group_by(Year, PLOT, area.sampled) %>%
   summarize(n = n(), mean_dbh = mean(DBH, na.rm = T), se_dbh = sd(DBH, na.rm = T)/sqrt(n()), 
-            ba = sum(BA, na.rm = T)) %>%  
-  ungroup() 
+            ba = sum(BA, na.rm = T), mean_above_bio = sum(above_dbh_biomass, na.rm = TRUE)) %>%  
+  ungroup() %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  mutate(dens = n/area.sampled, ba_m2 = ba/area.sampled, agb_m2 = mean_above_bio/area.sampled) %>%
+  select(-c(n, ba, mean_above_bio))
 
 tree.sum <- left_join(tree.summary, tree.summary.species)
 
 # Recruitment  
 recruit <- trees.2%>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
   left_join(ages) %>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
   filter(!is.na(DBH) & DA == 1) %>%
   group_by(UniqueID) %>%
   arrange(sample.pd, .by_group = TRUE) %>%
@@ -124,18 +182,20 @@ recruit <- trees.2%>%
   filter(DBH < 8) %>%
   #left_join(dbh.25) %>%
   #mutate(biomass_above = above_dbh_biomass - biomass) %>%
-  group_by(PLOT, Year, SPECIES, area.sampled) %>%
+  group_by(PLOT, Year, func_gp, area.sampled) %>%
   summarize(
-   mean_dbh_rec = mean(DBH, na.rm= T),se_dbh_rec = sd(DBH, na.rm = T)/sqrt(n()), 
+   mean_dbh_rec = mean(DBH, na.rm= T),se_dbh_rec = sd(DBH, na.rm = T)/sqrt(n()), agb = sum(above_dbh_biomass),
    ba_rec = sum(BA), 
    n_trees_rec = n()) %>%
   ungroup() %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  mutate(dens_m2_rec = n_trees_rec/area.sampled, ba_m2_rec = ba_rec/area.sampled, agb_m2_rec = agb/area.sampled) %>%
   pivot_wider(id_cols = c(Year, PLOT, area.sampled),
-              names_from = SPECIES,
-              values_from = c(n_trees_rec, mean_dbh_rec, se_dbh_rec, ba_rec),
-              names_glue = "{SPECIES}_{.value}") %>%
-  mutate(across(ends_with(c("n_trees_rec", "mean_dbh_rec", "se_dbh_rec", "ba_rec")), ~replace_na(.x, 0))) %>%
-  mutate(tot_rec_trees = BETNEO_n_trees_rec + PICGLA_n_trees_rec + POPTRE_n_trees_rec + PICMAR_n_trees_rec + LARLAR_n_trees_rec + POPBAL_n_trees_rec  + PICEA_n_trees_rec, tot_ba_rec = BETNEO_ba_rec+ PICGLA_ba_rec +POPTRE_ba_rec + PICMAR_ba_rec+ LARLAR_ba_rec+ POPBAL_ba_rec + PICEA_ba_rec)
+              names_from = func_gp,
+              values_from = c(n_trees_rec, dens_m2_rec, mean_dbh_rec, se_dbh_rec, ba_m2_rec, agb_m2_rec),
+              names_glue = "{func_gp}_{.value}") %>%
+  mutate(across(ends_with(c("dens_m2_rec", "mean_dbh_rec", "se_dbh_rec", "ba_m2_rec","agb_m2_rec")), ~replace_na(.x, 0))) %>%
+  mutate(tot_dens_rec = Conifer_dens_m2_rec + Decid_Broad_dens_m2_rec, tot_ba_rec = Conifer_ba_m2_rec + Decid_Broad_ba_m2_rec, tot_agb_rec = Conifer_agb_m2_rec + Decid_Broad_agb_m2_rec)
 
 # Death
 death.trees <- trees.2 %>%
@@ -145,7 +205,9 @@ death.trees <- trees.2 %>%
   distinct() 
 
 death <- trees.2%>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
   left_join(ages)%>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
   filter(UniqueID %in% death.trees$UniqueID) %>%
   filter(DA == 1) %>%
   filter(!is.na(DBH)) %>%
@@ -160,38 +222,700 @@ death <- trees.2%>%
   ) %>%
   # filter FP5A for now because not qutie right and FP5D
   #filter(site_yr %!in% c("FP5D_8", "FP5A_8")) %>%
-  group_by(PLOT, Year, SPECIES, area.sampled) %>%
+  group_by(PLOT, Year, func_gp, area.sampled) %>%
   summarize(
-   mean_dbh_death = mean(DBH, na.rm= T),se_dbh_death = sd(DBH, na.rm = T)/sqrt(n()), 
+   mean_dbh_death = mean(DBH, na.rm= T),se_dbh_death = sd(DBH, na.rm = T)/sqrt(n()), agb = sum(above_dbh_biomass),
    ba_death = sum(BA), 
    n_trees_death = n()) %>%
   ungroup() %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  mutate(dens_m2_death = n_trees_death/area.sampled, ba_death_m2 = ba_death/area.sampled, agb_death_m2 = agb/area.sampled) %>%
   pivot_wider(id_cols = c(Year, PLOT, area.sampled),
-              names_from = SPECIES,
-              values_from = c(n_trees_death, mean_dbh_death, se_dbh_death, ba_death),
-              names_glue = "{SPECIES}_{.value}") %>%
-  mutate(across(ends_with(c("n_trees_death", "mean_dbh_death", "se_dbh_death", "ba_death")), ~replace_na(.x, 0))) %>%
-  mutate(tot_death_trees = BETNEO_n_trees_death + PICGLA_n_trees_death + POPTRE_n_trees_death + PICMAR_n_trees_death + LARLAR_n_trees_death + POPBAL_n_trees_death, tot_ba_death = BETNEO_ba_death+ PICGLA_ba_death +POPTRE_ba_death + PICMAR_ba_death+ LARLAR_ba_death+ POPBAL_ba_death)
+              names_from = func_gp,
+              values_from = c(n_trees_death, dens_m2_death, mean_dbh_death, se_dbh_death, ba_death_m2,agb_death_m2),
+              names_glue = "{func_gp}_{.value}") %>%
+  mutate(across(ends_with(c("n_trees_death", "dens_m2_death", "mean_dbh_death", "se_dbh_death", "ba_death_m2","agb_death_m2")), ~replace_na(.x, 0))) %>%
+  mutate(tot_death_trees = Decid_Broad_n_trees_death + Conifer_n_trees_death, tot_dens_m2_death = Decid_Broad_dens_m2_death + Conifer_dens_m2_death, tot_ba_m2_death = Decid_Broad_ba_death_m2 + Conifer_ba_death_m2, tot_agb_m2_death = Decid_Broad_agb_death_m2 + Conifer_agb_death_m2)
 
 tree.sum2 <- left_join(tree.sum, recruit)
 
 tree.sum3 <- left_join(tree.sum2, death) 
-tree.sum4 <- left_join(tree.sum3, ages, by = c("Year", "PLOT"))
+tree.sum4 <- left_join(tree.sum3, ages, by = c("Year", "PLOT")) %>%
+  mutate(age2 = Year - age)
 
+glimpse(tree.sum4)
+
+
+```
+
+
+```{r}
 write.csv(tree.sum4, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/large_tree_summarytable.csv", row.names = F)
 
 ```
 
 
 # Make some graphs
+## Recruitment
 ```{r}
-glimpse(tree.sum3)
-
-ggplot(tree.sum4, aes(mean_dbh, fill = Year)) +
-  geom_histogram(bins = 30, alpha = 0.6) +
-  facet_wrap(~sample.pd)+
-  theme_bw() 
+glimpse(tree.sum4)
+recruit <- tree.sum4 %>%
+  filter(sample.pd != 1)%>%
+  mutate(across(c(Conifer_n_trees_rec, Decid_Broad_n_trees_rec, Conifer_dens_m2_rec,
+                  Decid_Broad_dens_m2_rec, tot_dens_rec), \(x) replace_na(x, 0)))
 ```
 
-# Change b/w first and last measurements based on age.
+# Death
+```{r}
+glimpse(tree.sum4)
+death <- tree.sum4 %>%
+  group_by(PLOT) %>%
+  mutate(year_lead = lead(Year),
+         year_diff = year_lead - Year) %>%
+  ungroup()%>%
+  filter(sample.pd != 3) %>%
+  mutate(across(c(Decid_Broad_n_trees_death, Conifer_n_trees_death, Decid_Broad_dens_m2_death,
+                  Conifer_dens_m2_death,Decid_Broad_ba_death_m2,Conifer_ba_death_m2,
+                  tot_death_trees,tot_dens_m2_death, tot_ba_m2_death), \(x) replace_na(x, 0))) %>%
+  mutate(no_trees = dens * area.sampled) %>%
+  select(c(PLOT, age2,Year, year_diff, sample.pd, dens, ba_m2, tot_dens_m2_death, tot_death_trees, no_trees, Conifer_dens_m2_death, Decid_Broad_dens_m2_death,Decid_Broad_ba_death_m2,Conifer_ba_death_m2, tot_ba_m2_death)) %>%
+  mutate(death_prop = tot_dens_m2_death/dens, death_prop_y = death_prop/year_diff, death_ba_prop = (tot_ba_m2_death/ba_m2)/year_diff, death_rate = tot_dens_m2_death/year_diff, con_death_rate = Conifer_dens_m2_death/year_diff, decid_death_rate = Decid_Broad_dens_m2_death/year_diff, decid_ba_death = Decid_Broad_ba_death_m2/year_diff, con_ba_death = Conifer_ba_death_m2/year_diff, tot_ba_death = tot_ba_m2_death/year_diff, decid_prop = Decid_Broad_dens_m2_death/tot_dens_m2_death) %>%
+  # Get rid of plots that we know had fire/disturbance
+  filter(PLOT %!in% c("BDI5", "BDI6"))
 
+summary(death$death_rate)
+summary(death$con_death_rate)
+summary(death$decid_death_rate)
+summary(death$death_prop_y)
+
+summary(death$tot_ba_death)
+summary(death$con_ba_death)
+summary(death$decid_ba_death)
+
+glimpse(death)
+
+ggplot(death, aes(age2, tot_ba_death*10000))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~sample.pd, scales= "free")
+
+ggplot(death, aes(age2, death_rate*10000))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~sample.pd, scales= "free")
+
+ggplot(death, aes(age2, death_prop_y, color = decid_prop))+
+  geom_point()+
+    scale_color_viridis_c(option = "viridis", end = 0.9,
+                        name = "Deciduous\nproportion") +
+  theme_bw()+
+  facet_wrap(~sample.pd, scales= "free")
+
+ggplot(death, aes(age2, death_ba_prop, color = decid_prop))+
+  geom_point()+
+    scale_color_viridis_c(option = "viridis", end = 0.9,
+                        name = "Deciduous\nproportion") +
+  theme_bw()+
+  facet_wrap(~sample.pd, scales= "free")
+
+ggplot(death, aes(ba_m2*10000, death_ba_prop * 100, color = decid_prop))+
+  geom_point()+
+    scale_color_viridis_c(option = "viridis", end = 0.9,
+                        name = "Deciduous\nproportion") +
+  theme_bw()+
+  facet_wrap(~sample.pd, scales= "free")
+
+ggplot(death, aes(ba_m2*10000, death_ba_prop * 100, group = PLOT, color = log(age2)))+
+  geom_point()+
+  geom_line()+
+    scale_color_viridis_c(option = "viridis", end = 0.95,
+                        name = "Age") +
+  theme_bw()
+```
+
+# Determine age class
+```{r}
+age.class <- ages %>%
+  group_by(PLOT) %>%
+  slice_max(Year, n = 1) %>%
+  select(PLOT, Year, age) %>%
+  mutate(age2 = Year - age) %>%
+    mutate(age_class = cut(age2,
+                         breaks = c(0, 30, 60, 90,Inf),
+                         labels = c("Young", "Intermediate", "Mature", "Old"),
+                         include.lowest = TRUE))
+str(age.class)
+
+glimpse(tree.sum4)
+sum1 <- tree.sum4 %>%
+  filter(sample.pd == "3") %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  left_join(age.class) %>%
+  mutate(age_class = factor(if_else(PLOT == "WCM2", "Old", as.character(age_class)))) %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  group_by(Network, age_class) %>%
+  summarize(n = n(), DBH = mean(mean_dbh), sd_DBH = sd(mean_dbh), min_DBH = min(mean_dbh), max_DBH = max(mean_dbh), Density = mean(dens), sd_Dens = sd(dens), min_Dens = min(dens), max_Dens = max(dens), agb = mean(agb_m2), sd_agb = sd(agb_m2), min_agb = min(agb_m2), max_agb = max(agb_m2), ba = mean(ba_m2), sd_ba = sd(ba_m2 ), min_ba = min(ba_m2), max_ba = max(ba_m2), Decid_Broad_ba = mean(Decid_Broad_ba_m2), sd_Decid_Broad_ba = sd(Decid_Broad_ba_m2 ), min_Decid_Broad_ba = min(Decid_Broad_ba_m2), max_Decid_Broad_ba = max(Decid_Broad_ba_m2),rec = mean(tot_dens_rec), sd_rec = sd(tot_dens_rec), min_rec = min(tot_dens_rec), max_rec = max(tot_dens_rec), Decid_Broad_rec = mean(Decid_Broad_dens_m2_rec), sd_Decid_Broad_rec = sd(Decid_Broad_dens_m2_rec), min_Decid_Broad_rec = min(Decid_Broad_dens_m2_rec), max_Decid_Broad_rec = max(Decid_Broad_dens_m2_rec))
+
+# Add in rec & death over the two sampling periods!!
+age.class2 <- ages %>%
+  filter(sample.pd ==2) %>%
+  select(PLOT, Year, age) %>%
+  mutate(age2 = Year - age) %>%
+    mutate(age_class = cut(age2,
+                         breaks = c(0, 30, 60, 90,Inf),
+                         labels = c("Young", "Intermediate", "Mature", "Old"),
+                         include.lowest = TRUE))
+
+death.pd3 <- tree.sum4 %>%
+  filter(sample.pd == "2") %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  left_join(age.class2) %>%
+  mutate(age_class = factor(if_else(PLOT == "WCM2", "Old", as.character(age_class)))) %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  group_by(Network, age_class) %>%
+  summarize(dens_death = mean(tot_dens_m2_death), sd_dens_death = sd(tot_dens_m2_death), min_dens_death = min(tot_dens_m2_death), max_dens_death = max(tot_dens_m2_death), ba_death = mean(tot_ba_m2_death), sd_ba_death = sd(tot_ba_m2_death), min_ba_death= min(tot_ba_m2_death), max_ba_death = max(tot_ba_m2_death), Decid_Broad_death = mean(Decid_Broad_ba_death_m2), sd_Decid_Broad_death = sd(Decid_Broad_ba_death_m2), min_Decid_Broad_death = min(Decid_Broad_ba_death_m2), max_Decid_Broad_death = max(Decid_Broad_ba_death_m2))
+
+sum2 <- left_join(sum1, death.pd3)
+  
+```
+
+```{r}
+
+library(tidyverse)
+library(gt)
+
+# label shown in table = column stem in your data
+vars <- c("DBH (cm)"                           = "DBH",
+          "Density (stems ha⁻¹)"               = "Dens",
+          "AGB (Mg ha⁻¹)"                      = "agb",
+          "BA (m² ha⁻¹)"                       = "ba",
+          "Deciduous BA (m² ha⁻¹)"             = "Decid_Broad_ba",
+          "Recruitment (stems ha⁻¹)"           = "rec",
+          "Deciduous recruitment (stems ha⁻¹)" = "Decid_Broad_rec",
+          "Density of Death (stems ha⁻¹)" = "dens_death",
+          "BA Death (m² ha⁻¹)" = "ba_death",
+          "Deciduous death BA (m² ha⁻¹) " = "Decid_Broad_death")
+
+tab <- sum2 |>
+  rename(Dens = Density) |>
+  # per m² → per ha (density, BA, recruitment); g/m² → Mg/ha (AGB)
+  mutate(across(matches("^(sd_|min_|max_)?(Dens|ba|Decid_Broad_ba|rec|Decid_Broad_rec|ba_death|dens_death|Decid_Broad_death)$"), \(x) x * 1e4),
+         across(matches("^(sd_|min_|max_)?agb$"), \(x) x / 100)) |>
+  mutate(age_class = factor(age_class, levels = c("Young", "Intermediate", "Mature", "Old")) |>
+           fct_na_value_to_level("Unassigned")) |>
+  arrange(Network, age_class)
+
+f  <- \(x) formatC(x, digits = 3, format = "fg", big.mark = ",")
+pm <- \(d, v) str_c(f(d[[v]]), " ± ", f(d[[str_c("sd_", v)]]),
+                    " (", f(d[[str_c("min_", v)]]), "–", f(d[[str_c("max_", v)]]), ")")
+
+out <- tab |>
+  select(Network, age_class, n) |>
+  bind_cols(as_tibble(map(vars, \(v) pm(tab, v))))
+
+out |>
+  gt(groupname_col = "Network") |>
+  cols_label(age_class = "Age class", n = md("*n*")) |>
+  cols_align("center", -age_class) |>
+  tab_source_note("Values are mean ± SD (min–max).") |>
+  tab_options(row_group.font.weight = "bold",
+              column_labels.font.weight = "bold",
+              table.font.size = px(12))
+
+```
+
+
+# Make the table for the time period 1-2
+
+```{r}
+age.class <- ages %>%
+  filter(sample.pd == 2) %>%
+  select(PLOT, Year, age) %>%
+  mutate(age2 = Year - age) %>%
+    mutate(age_class = cut(age2,
+                         breaks = c(0, 30, 60, 90,Inf),
+                         labels = c("Young", "Intermediate", "Mature", "Old"),
+                         include.lowest = TRUE))
+str(age.class)
+
+glimpse(tree.sum4)
+sum1 <- tree.sum4 %>%
+  filter(sample.pd == "2") %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  left_join(age.class) %>%
+  mutate(age_class = factor(if_else(PLOT == "WCM2", "Old", as.character(age_class)))) %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  group_by(Network, age_class) %>%
+  summarize(n = n(), DBH = mean(mean_dbh), sd_DBH = sd(mean_dbh), min_DBH = min(mean_dbh), max_DBH = max(mean_dbh), Density = mean(dens), sd_Dens = sd(dens), min_Dens = min(dens), max_Dens = max(dens), agb = mean(agb_m2), sd_agb = sd(agb_m2), min_agb = min(agb_m2), max_agb = max(agb_m2), ba = mean(ba_m2), sd_ba = sd(ba_m2 ), min_ba = min(ba_m2), max_ba = max(ba_m2), Decid_Broad_ba = mean(Decid_Broad_ba_m2), sd_Decid_Broad_ba = sd(Decid_Broad_ba_m2 ), min_Decid_Broad_ba = min(Decid_Broad_ba_m2), max_Decid_Broad_ba = max(Decid_Broad_ba_m2),rec = mean(tot_dens_rec), sd_rec = sd(tot_dens_rec), min_rec = min(tot_dens_rec), max_rec = max(tot_dens_rec), Decid_Broad_rec = mean(Decid_Broad_dens_m2_rec), sd_Decid_Broad_rec = sd(Decid_Broad_dens_m2_rec), min_Decid_Broad_rec = min(Decid_Broad_dens_m2_rec), max_Decid_Broad_rec = max(Decid_Broad_dens_m2_rec))
+
+# Add in rec & death over the two sampling periods!!
+age.class1 <- ages %>%
+  filter(sample.pd ==1) %>%
+  select(PLOT, Year, age) %>%
+  mutate(age2 = Year - age) %>%
+    mutate(age_class = cut(age2,
+                         breaks = c(0, 30, 60, 90,Inf),
+                         labels = c("Young", "Intermediate", "Mature", "Old"),
+                         include.lowest = TRUE))
+
+death.pd3 <- tree.sum4 %>%
+  filter(sample.pd == "1") %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  left_join(age.class1) %>%
+  mutate(age_class = factor(if_else(PLOT == "WCM2", "Old", as.character(age_class)))) %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  group_by(Network, age_class) %>%
+  summarize(dens_death = mean(tot_dens_m2_death), sd_dens_death = sd(tot_dens_m2_death), min_dens_death = min(tot_dens_m2_death), max_dens_death = max(tot_dens_m2_death), ba_death = mean(tot_ba_m2_death), sd_ba_death = sd(tot_ba_m2_death), min_ba_death= min(tot_ba_m2_death), max_ba_death = max(tot_ba_m2_death), Decid_Broad_death = mean(Decid_Broad_ba_death_m2), sd_Decid_Broad_death = sd(Decid_Broad_ba_death_m2), min_Decid_Broad_death = min(Decid_Broad_ba_death_m2), max_Decid_Broad_death = max(Decid_Broad_ba_death_m2))
+
+sum3 <- left_join(sum1, death.pd3)
+
+```
+
+```{r}
+
+library(tidyverse)
+library(gt)
+
+# label shown in table = column stem in your data
+vars <- c("DBH (cm)"                           = "DBH",
+          "Density (stems ha⁻¹)"               = "Dens",
+          "AGB (Mg ha⁻¹)"                      = "agb",
+          "BA (m² ha⁻¹)"                       = "ba",
+          "Deciduous BA (m² ha⁻¹)"             = "Decid_Broad_ba",
+          "Recruitment (stems ha⁻¹)"           = "rec",
+          "Deciduous recruitment (stems ha⁻¹)" = "Decid_Broad_rec",
+          "Density of Death (stems ha⁻¹)" = "dens_death",
+          "BA Death (m² ha⁻¹)" = "ba_death",
+          "Deciduous death BA (m² ha⁻¹) " = "Decid_Broad_death")
+
+tab2 <- sum3 |>
+  rename(Dens = Density) |>
+  # per m² → per ha (density, BA, recruitment); g/m² → Mg/ha (AGB)
+  mutate(across(matches("^(sd_|min_|max_)?(Dens|ba|Decid_Broad_ba|rec|Decid_Broad_rec|ba_death|dens_death|Decid_Broad_death)$"), \(x) x * 1e4),
+         across(matches("^(sd_|min_|max_)?agb$"), \(x) x / 100)) |>
+  mutate(age_class = factor(age_class, levels = c("Young", "Intermediate", "Mature", "Old")) |>
+           fct_na_value_to_level("Unassigned")) |>
+  arrange(Network, age_class)
+
+f  <- \(x) formatC(x, digits = 3, format = "fg", big.mark = ",")
+pm <- \(d, v) str_c(f(d[[v]]), " ± ", f(d[[str_c("sd_", v)]]),
+                    " (", f(d[[str_c("min_", v)]]), "–", f(d[[str_c("max_", v)]]), ")")
+
+out2 <- tab2 |>
+  select(Network, age_class, n) |>
+  bind_cols(as_tibble(map(vars, \(v) pm(tab2, v))))
+
+out2 |>
+  gt(groupname_col = "Network") |>
+  cols_label(age_class = "Age class", n = md("*n*")) |>
+  cols_align("center", -age_class) |>
+  tab_source_note("Values are mean ± SD (min–max).") |>
+  tab_options(row_group.font.weight = "bold",
+              column_labels.font.weight = "bold",
+              table.font.size = px(12))
+```
+
+
+# Just summary of 1!
+```{r}
+age.class <- ages %>%
+  filter(sample.pd ==1) %>%
+  select(PLOT, Year, age) %>%
+  mutate(age2 = Year - age) %>%
+    mutate(age_class = cut(age2,
+                         breaks = c(0, 30, 60, 90,Inf),
+                         labels = c("Young", "Intermediate", "Mature", "Old"),
+                         include.lowest = TRUE))
+str(age.class)
+
+glimpse(tree.sum4)
+sum1 <- tree.sum4 %>%
+  filter(sample.pd == "1") %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  left_join(age.class) %>%
+  mutate(age_class = factor(if_else(PLOT == "WCM2", "Old", as.character(age_class)))) %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  group_by(Network, age_class) %>%
+  summarize(n = n(), DBH = mean(mean_dbh), sd_DBH = sd(mean_dbh), min_DBH = min(mean_dbh), max_DBH = max(mean_dbh), Density = mean(dens), sd_Dens = sd(dens), min_Dens = min(dens), max_Dens = max(dens), agb = mean(agb_m2), sd_agb = sd(agb_m2), min_agb = min(agb_m2), max_agb = max(agb_m2), ba = mean(ba_m2), sd_ba = sd(ba_m2 ), min_ba = min(ba_m2), max_ba = max(ba_m2), Decid_Broad_ba = mean(Decid_Broad_ba_m2), sd_Decid_Broad_ba = sd(Decid_Broad_ba_m2 ), min_Decid_Broad_ba = min(Decid_Broad_ba_m2), max_Decid_Broad_ba = max(Decid_Broad_ba_m2))
+
+
+
+```
+
+```{r}
+
+library(tidyverse)
+library(gt)
+
+# label shown in table = column stem in your data
+vars <- c("DBH (cm)"                           = "DBH",
+          "Density (stems ha⁻¹)"               = "Dens",
+          "AGB (Mg ha⁻¹)"                      = "agb",
+          "BA (m² ha⁻¹)"                       = "ba",
+          "Deciduous BA (m² ha⁻¹)"             = "Decid_Broad_ba")
+
+tab1 <- sum1 |>
+  rename(Dens = Density) |>
+  # per m² → per ha (density, BA, recruitment); g/m² → Mg/ha (AGB)
+  mutate(across(matches("^(sd_|min_|max_)?(Dens|ba|Decid_Broad_ba|rec|Decid_Broad_rec|ba_death|dens_death|Decid_Broad_death)$"), \(x) x * 1e4),
+         across(matches("^(sd_|min_|max_)?agb$"), \(x) x / 100)) |>
+  mutate(age_class = factor(age_class, levels = c("Young", "Intermediate", "Mature", "Old")) |>
+           fct_na_value_to_level("Unassigned")) |>
+  arrange(Network, age_class)
+
+f  <- \(x) formatC(x, digits = 3, format = "fg", big.mark = ",")
+pm <- \(d, v) str_c(f(d[[v]]), " ± ", f(d[[str_c("sd_", v)]]),
+                    " (", f(d[[str_c("min_", v)]]), "–", f(d[[str_c("max_", v)]]), ")")
+
+out1 <- tab1 |>
+  select(Network, age_class, n) |>
+  bind_cols(as_tibble(map(vars, \(v) pm(tab1, v))))
+
+out1 |>
+  gt(groupname_col = "Network") |>
+  cols_label(age_class = "Age class", n = md("*n*")) |>
+  cols_align("center", -age_class) |>
+  tab_source_note("Values are mean ± SD (min–max).") |>
+  tab_options(row_group.font.weight = "bold",
+              column_labels.font.weight = "bold",
+              table.font.size = px(12))
+```
+
+# make figure of recruitment/mortality/growth by canopy and age
+
+# tree demo summary figures
+```{r}
+# Using tree sum.4 and looking at growht on the stand level...
+glimpse(tree.sum4)
+
+age.class.all <- ages %>%
+  select(PLOT, Year, age) %>%
+  mutate(age2 = Year - age) %>%
+    mutate(age_class = cut(age2,
+                         breaks = c(0, 30, 60, 90,Inf),
+                         labels = c("Young", "Intermediate", "Mature", "Old"),
+                         include.lowest = TRUE))
+
+demos <- tree.sum4 %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  #Calculate relative deciduous density, relative deciduous biomass, and deciduous index
+  mutate(rel_dens_decid = Decid_Broad_dens/dens, 
+         rel_biomass_decid = Decid_Broad_agb_m2/agb_m2, 
+         decid.index.msq = (rel_dens_decid + rel_biomass_decid)/2) %>%
+  #Categorize sites based on their deciduous index value!
+  mutate(canopy= case_when(
+    decid.index.msq > 0.66 ~ "decid",
+    decid.index.msq < 0.33 ~ "spruce",
+    TRUE ~ "mixed"
+  )) %>%
+  group_by(PLOT) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(
+    interval      = Year - lag(Year),
+    d_agb_m2      = agb_m2 - lag(agb_m2),     # change since previous census
+    d_agb_m2_yr   = d_agb_m2 / interval,        # annualized (g m⁻² yr⁻¹)
+    tot_agb_rec_yr = tot_agb_rec/interval,
+    decid_agb_rec_yr = Decid_Broad_agb_m2_rec/interval, 
+    con_agb_rec_yr = Conifer_agb_m2_rec/interval
+  ) %>%
+  ungroup()%>%
+  filter(!is.na(interval)) %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  left_join(age.class.all)
+  
+  
+demo.death <- tree.sum4 %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  group_by(PLOT) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(
+    interval      = lead(Year) - Year,
+    Year2 = lead(Year),
+    tot_agb_death_yr = tot_agb_m2_death/interval,
+    decid_agb_death_yr = Decid_Broad_agb_death_m2/interval, 
+    con_agb_death_yr = Conifer_agb_death_m2/interval
+  ) %>%
+  ungroup()%>%
+  filter(!is.na(interval)) %>%
+  filter(PLOT %!in% c("FP5C", "BDI5", "BDI6")) %>%
+  select(c(PLOT, Year2, tot_agb_death_yr, decid_agb_death_yr, con_agb_death_yr)) %>%
+  rename(Year = Year2)
+
+
+demo.2 <- left_join(demos, demo.death)
+glimpse(demo.2)
+
+
+demo.3 <- demo.2 %>%
+  select(c(Network, PLOT, sample.pd, tot_agb_death_yr, decid_agb_death_yr, con_agb_death_yr, age_class, age2, canopy, decid.index.msq, d_agb_m2_yr, tot_agb_rec_yr, decid_agb_rec_yr, con_agb_rec_yr)) %>%
+  # fix growth
+  mutate(d_agb_m2_yr2 = d_agb_m2_yr + tot_agb_death_yr - tot_agb_rec_yr)
+  
+demo.4 <- demo.3 %>%
+  select(c(Network, PLOT, sample.pd, age_class, age2, canopy, decid.index.msq, d_agb_m2_yr, d_agb_m2_yr2, tot_agb_rec_yr,tot_agb_death_yr)) %>%
+  mutate(tot_agb_death_yr = tot_agb_death_yr * -1) %>%
+  pivot_longer(cols = d_agb_m2_yr:tot_agb_death_yr, names_to = "demo_process", values_to = "anpp") %>%
+  mutate(demo_process = case_when(
+    demo_process == "tot_agb_rec_yr" ~ "Recruit", 
+    demo_process == "tot_agb_death_yr" ~ "Death",
+    demo_process == "d_agb_m2_yr" ~ "Net",
+    TRUE ~ "Growth"
+  ))
+
+summary.table <- demo.2 %>%
+  group_by(Network, sample.pd, age_class, canopy)%>%
+  dplyr::count()
+
+
+ggplot(demo.4, aes(age2, anpp, color = demo_process, fill = demo_process))+
+  #geom_point(alpha = 0.5)+
+  geom_smooth(method = "loess", se = T) +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  xlim(0, 230)
+
+ggplot(demo.4, aes(age2, anpp, color = demo_process, fill = demo_process))+
+  #geom_point(alpha = 0.5)+
+  geom_smooth(method = "loess", se = F) +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  facet_wrap(~canopy, scales = "free")
+
+demo.4 <- demo.4 %>%
+  mutate(demo_process = factor(demo_process, levels = c("Net", "Growth", "Recruit", "Death")))
+
+proc_col <- c(Net = "black", Growth = "#1b9e77", Recruit = "#7570b3", Death = "#d95f02")
+proc_lty <- c(Net = "solid", Growth = "dashed", Recruit = "dotdash", Death = "dotted")
+proc_lwd <- c(Net = 1.6,     Growth = 0.8,      Recruit = 0.8,       Death = 0.8)
+
+ggplot(demo.4, aes(age2, anpp, colour = demo_process, fill = demo_process,
+                   linetype = demo_process, linewidth = demo_process)) +
+  #geom_point(alpha = 0.5)+
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.15) +
+  scale_colour_manual(values = proc_col) +
+  scale_fill_manual(values = proc_col) +
+  scale_linetype_manual(values = proc_lty) +
+  scale_linewidth_manual(values = proc_lwd) +
+  coord_cartesian(xlim = c(0, 230)) +
+  labs(x = "Stand age (years)",
+       y = expression(AGB~Change~(g~m^-2~yr^-1)),
+       colour = NULL, fill = NULL, linetype = NULL, linewidth = NULL) +
+  theme_bw(base_size = 15)
+
+ggplot(data = subset(demo.4,demo.4$Network == "RSN"), aes(age2, anpp, colour = demo_process, fill = demo_process,
+                   linetype = demo_process, linewidth = demo_process)) +
+  #geom_point(alpha = 0.5)+
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.15) +
+  scale_colour_manual(values = proc_col) +
+  scale_fill_manual(values = proc_col) +
+  scale_linetype_manual(values = proc_lty) +
+  scale_linewidth_manual(values = proc_lwd) +
+  coord_cartesian(xlim = c(0, 230)) +
+  labs(x = "Stand age (years)",
+       y = expression(AGB~Change~(g~m^-2~yr^-1)),
+       colour = NULL, fill = NULL, linetype = NULL, linewidth = NULL) +
+  theme_bw()
+
+
+ggplot(demo.4, aes(age2, anpp, colour = demo_process, fill = demo_process,
+                   linetype = demo_process, linewidth = demo_process)) +
+  geom_point(alpha = 0.5)+
+  geom_hline(yintercept = 0, colour = "grey60") +
+  #geom_smooth(method = "loess", se = TRUE, alpha = 0.15) +
+  scale_colour_manual(values = proc_col) +
+  scale_fill_manual(values = proc_col) +
+  scale_linetype_manual(values = proc_lty) +
+  scale_linewidth_manual(values = proc_lwd) +
+  #coord_cartesian(xlim = c(0, 230)) +
+  labs(x = "Stand age (years)",
+       y = expression(AGB~Change~(g~m^-2~yr^-1)),
+       colour = NULL, fill = NULL, linetype = NULL, linewidth = NULL) +
+  theme_bw()+
+  facet_wrap(~canopy, scales = "free")
+
+ggplot(data = subset(demo.4, demo.4$age_class == "Intermediate"), aes(decid.index.msq, anpp, colour = demo_process, fill = demo_process,
+                   linetype = demo_process, linewidth = demo_process)) +
+  geom_point(alpha = 0.5)+
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.15) +
+  scale_colour_manual(values = proc_col) +
+  scale_fill_manual(values = proc_col) +
+  scale_linetype_manual(values = proc_lty) +
+  scale_linewidth_manual(values = proc_lwd) +
+  #coord_cartesian(xlim = c(0, 230)) +
+  labs(x = "Deciduous Index",
+       y = expression(AGB~Change~(g~m^-2~yr^-1)),
+       colour = NULL, fill = NULL, linetype = NULL, linewidth = NULL) +
+  theme_bw(base_size = 15) +
+  facet_wrap(~age_class, scales = "free")
+```
+
+# trying to look at the integral
+```{r}
+library(tidyverse)
+
+net <- demo.4 %>%
+  filter(demo_process == "Net", !is.na(anpp), !is.na(canopy))
+
+# integrate over the age range all canopy types share (avoids extrapolating)
+rng  <- net %>% group_by(canopy) %>% summarise(lo = min(age2), hi = max(age2))
+ages <- seq(max(rng$lo), min(rng$hi), by = 1)
+
+# fit loess to Net, predict on the age grid, cumulative trapezoid integral
+fit_cum <- function(d, ages) {
+  m <- loess(anpp ~ age2, data = d, control = loess.control(surface = "direct"))
+  tibble(age2 = ages, net = predict(m, tibble(age2 = ages))) %>%
+    mutate(cum = cumsum(c(0, diff(age2) * (head(net, -1) + tail(net, -1)) / 2)))
+}
+
+# bootstrap by resampling plots
+boot_cum <- function(d, ages, B = 500) {
+  plots <- unique(d$PLOT)
+  map_dfr(seq_len(B), \(b) {
+    tibble(PLOT = sample(plots, replace = TRUE)) %>%
+      inner_join(d, by = "PLOT", relationship = "many-to-many") %>%
+      fit_cum(ages) %>%
+      mutate(b = b)
+  })
+}
+
+set.seed(1)
+cum_boot <- net %>%
+  group_by(canopy) %>%
+  group_modify(\(d, k) boot_cum(d, ages)) %>%
+  ungroup()
+
+cum_sum <- cum_boot %>%
+  group_by(canopy, age2) %>%
+  summarise(est = median(cum),
+            lo  = quantile(cum, 0.025),
+            hi  = quantile(cum, 0.975), .groups = "drop")
+
+auc <- cum_sum %>% filter(age2 == max(age2))   # total AUC over the shared range
+
+ggplot(cum_sum, aes(age2, est, colour = canopy, fill = canopy)) +
+  geom_hline(yintercept = 0, colour = "grey60") +
+  #geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.2, colour = NA) +
+  geom_line(linewidth = 1.2) +
+  labs(x = "Stand age (years)", y = expression(Cumulative~net~AGB~(g~m^-2)),
+       colour = "Canopy", fill = "Canopy") +
+  theme_bw()
+
+ggplot(auc, aes(canopy, est, colour = canopy)) +
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_pointrange(aes(ymin = lo, ymax = hi), size = 0.8) +
+  labs(x = NULL,
+       y = bquote(Net~AGB~accumulated~.(min(ages))*"–"*.(max(ages))~yr~(g~m^-2))) +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+library(tidyverse)
+
+procs <- demo.4 %>%
+  filter(!is.na(anpp), !is.na(canopy))
+
+# shared age range across canopy types
+rng  <- procs %>% group_by(canopy) %>% summarise(lo = min(age2), hi = max(age2))
+ages <- seq(max(rng$lo), min(rng$hi), by = 1)
+
+fit_cum <- function(d, ages) {
+  m <- loess(anpp ~ age2, data = d, control = loess.control(surface = "direct"))
+  tibble(age2 = ages, rate = predict(m, tibble(age2 = ages))) %>%
+    mutate(cum = cumsum(c(0, diff(age2) * (head(rate, -1) + tail(rate, -1)) / 2)))
+}
+
+cum_proc <- procs %>%
+  group_by(canopy, demo_process) %>%
+  group_modify(\(d, k) fit_cum(d, ages)) %>%
+  ungroup()
+
+comp  <- cum_proc %>%
+  filter(demo_process != "Net") %>%
+  mutate(demo_process = factor(demo_process, levels = c("Recruit", "Growth", "Death")))
+net_l <- cum_proc %>% filter(demo_process == "Net")
+sum_l <- comp %>% group_by(canopy, age2) %>% summarise(cum = sum(cum), .groups = "drop")
+
+proc_col <- c(Growth = "#1b9e77", Recruit = "#7570b3", Death = "#d95f02")
+
+ggplot() +
+  geom_area(data = comp, aes(age2, cum, fill = demo_process), alpha = 0.8) +  # +/- stack separately
+  geom_hline(yintercept = 0, colour = "grey40") +
+  geom_line(data = sum_l, aes(age2, cum), linetype = "dashed", colour = "grey30") +
+  geom_line(data = net_l, aes(age2, cum), linewidth = 1.4, colour = "black") +
+  facet_wrap(~canopy) +
+  scale_fill_manual(values = proc_col) +
+  labs(x = "Stand age (years)",
+       y = expression(Cumulative~AGB~flux~(g~m^-2)),
+       fill = NULL,
+       caption = "Solid line = Net; dashed = Growth + Recruit + Death") +
+  theme_bw()
+
+
+library(mgcv)
+
+procs <- demo.4 %>%
+  filter(!is.na(anpp), !is.na(canopy)) %>%
+  mutate(PLOT = factor(PLOT), canopy = factor(canopy))
+
+rng  <- procs %>% group_by(canopy) %>% summarise(lo = min(age2), hi = max(age2))
+ages <- seq(max(rng$lo), min(rng$hi), by = 1)
+
+gam_cum <- function(d, ages, n_draws = 1000) {
+  m  <- gam(anpp ~ canopy + s(age2, by = canopy, k = 5) + s(PLOT, bs = "re"),
+            data = d, method = "REML")
+  nd <- expand_grid(canopy = levels(d$canopy), age2 = ages) %>%
+    mutate(canopy = factor(canopy, levels = levels(d$canopy)), PLOT = d$PLOT[1])
+  X    <- predict(m, nd, type = "lpmatrix", exclude = "s(PLOT)")   # population-level curve
+  beta <- MASS::mvrnorm(n_draws, coef(m), vcov(m, unconditional = TRUE))
+  sims <- X %*% t(beta)                                             # rows = grid, cols = draws
+
+  nd %>% select(canopy, age2) %>%
+    bind_cols(as_tibble(sims, .name_repair = \(x) str_c("d", seq_along(x)))) %>%
+    pivot_longer(starts_with("d"), names_to = "draw", values_to = "rate") %>%
+    group_by(canopy, draw) %>%
+    arrange(age2, .by_group = TRUE) %>%
+    mutate(cum = cumsum(c(0, diff(age2) * (head(rate, -1) + tail(rate, -1)) / 2))) %>%
+    group_by(canopy, age2) %>%
+    summarise(rate = mean(rate), est = mean(cum),
+              lo = quantile(cum, 0.025), hi = quantile(cum, 0.975), .groups = "drop")
+}
+
+cum_proc <- procs %>%
+  group_by(demo_process) %>%
+  group_modify(\(d, k) gam_cum(d, ages)) %>%
+  ungroup()
+
+proc_col <- c(Growth = "#1b9e77", Recruit = "#7570b3", Death = "#d95f02")
+
+comp <- cum_proc %>%
+  filter(demo_process != "Net") %>%
+  mutate(demo_process = factor(demo_process, levels = c("Recruit", "Growth", "Death")))
+net_l <- cum_proc %>% filter(demo_process == "Net")
+sum_l <- comp %>% group_by(canopy, age2) %>% summarise(est = sum(est), .groups = "drop")
+
+p_budget <- ggplot() +
+  geom_area(data = comp, aes(age2, est, fill = demo_process), alpha = 0.75) +
+  geom_hline(yintercept = 0, colour = "grey40") +
+  geom_ribbon(data = net_l, aes(age2, ymin = lo, ymax = hi), fill = "black", alpha = 0.15) +
+  geom_line(data = sum_l, aes(age2, est), linetype = "dashed", colour = "grey20") +
+  geom_line(data = net_l, aes(age2, est), linewidth = 1.4, colour = "black") +
+  facet_wrap(~canopy, nrow = 1) +
+  scale_fill_manual(values = proc_col) +
+  labs(x = "Stand age (years)",
+       y = expression(Cumulative~AGB~flux~(g~m^-2)),
+       fill = NULL,
+       caption = "Solid line ± 95% CI = Net; dashed = Growth + Recruit + Death") +
+  theme_bw() +
+  theme(legend.position = "bottom", strip.background = element_blank(),
+        strip.text = element_text(face = "bold"))
+p_budget
+```
+
+# To DO
+- WCM2 - sampled in 2025 or 2026, need to classify
+- what old stands are recruiting deciduous
+- comparison of growth/mortality/death based on all tree area vs. tree level 

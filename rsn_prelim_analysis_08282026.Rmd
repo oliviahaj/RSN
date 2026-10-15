@@ -218,6 +218,7 @@ trajectories <- trees.traj %>%
   mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
   group_by(Network, PLOT, SPECIES, sample.pd, sampled_plots_period, area_sampled) %>%
   #for each species within each site- get the mean value for biomass for above dbh individuals and below dbh individuals. Add all below dbh individuals and all above dbh individuals for each species in each site
+  ########### SHOULDNT THIS BE SUM??????????
   summarise(mean_above_bio = mean(above_dbh_biomass, na.rm = TRUE), count_above = n()) %>%
   ungroup()%>%
   #multiply mean biomass * number of individuals for above and below individuals of each species, get total # of each species at the site level 
