@@ -250,7 +250,7 @@ glimpse(tree.sum4)
 
 
 ```{r}
-write.csv(tree.sum4, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/large_tree_summarytable.csv", row.names = F)
+#write.csv(tree.sum4, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/large_tree_summarytable.csv", row.names = F)
 
 ```
 
