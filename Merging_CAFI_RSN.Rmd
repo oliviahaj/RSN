@@ -381,6 +381,19 @@ setdiff(names(cafi.5), names(rsn.merge))  # in df2 but not df1
 # add in a HTDMP
 # if topped, lean, bowed this should be a damage - could add this to damsev4? 
 
+test2 <- rsn.merge %>%
+  mutate(
+    TOP_num = suppressWarnings(as.numeric(TOP)),
+    reason = case_when(
+      LEAN == 1                               ~ "lean",
+      BOWED == 1                              ~ "bowed",
+      str_trim(str_to_lower(TOP)) == "topped" ~ "topped (text)",
+      between(TOP_num, 0, 90)                 ~ "TOP numeric",
+      .default = "none"
+    )
+  ) %>%
+  dplyr::count(reason)
+
 rsn.merge2 <- rsn.merge %>%
   mutate(HTDMP = 4.5, 
          DAMAGE_4 = case_when(

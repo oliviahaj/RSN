@@ -915,7 +915,405 @@ p_budget <- ggplot() +
 p_budget
 ```
 
-# To DO
-- WCM2 - sampled in 2025 or 2026, need to classify
+
+# Zooming in on mortality
+# who is dying
+```{r}
+glimpse(trees.2)
+# Death
+death.trees <- trees.2 %>%
+  left_join(ages) %>%
+  filter(DA == 0 & sample.pd != 1)%>%
+  select(UniqueID, SPECIES)%>%
+  distinct() 
+
+death.sp <- trees.2%>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
+  left_join(ages)%>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
+  filter(UniqueID %in% death.trees$UniqueID) %>%
+  filter(DA == 1) %>%
+  filter(!is.na(DBH)) %>%
+  group_by(UniqueID) %>%
+  slice_max(order_by = sample.pd, n = 1)%>%
+  ungroup()%>%
+  mutate(
+    # sample area
+    area.sampled = Plot.Area.M2 * sampled_plots_period, 
+    BA = 0.00007854 * (DBH)^2,
+    Year_diff = Year - lag(Year)
+  ) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  #filter(site_yr %!in% c("FP5D_8", "FP5A_8")) %>%
+  group_by(Network, PLOT, Year, SPECIES, area.sampled) %>%
+  summarize(
+   mean_dbh_death = mean(DBH, na.rm= T),se_dbh_death = sd(DBH, na.rm = T)/sqrt(n()), agb = sum(above_dbh_biomass),
+   ba_death = sum(BA), 
+   n_trees_death.sp = n()) %>%
+  ungroup() %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0)))%>%
+  mutate(sp_dens_m2_death = n_trees_death.sp/area.sampled, ba_death_m2 = ba_death/area.sampled, agb_death_m2 = agb/area.sampled) %>%
+  select(-c(agb,ba_death))
+
+stand.death <- trees.2%>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
+  left_join(ages)%>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
+  filter(UniqueID %in% death.trees$UniqueID) %>%
+  filter(DA == 1) %>%
+  filter(!is.na(DBH)) %>%
+  group_by(UniqueID) %>%
+  slice_max(order_by = sample.pd, n = 1)%>%
+  ungroup()%>%
+  mutate(
+    # sample area
+    area.sampled = Plot.Area.M2 * sampled_plots_period, 
+    BA = 0.00007854 * (DBH)^2,
+    Year_diff = Year - lag(Year)
+  ) %>%
+  # filter FP5A for now because not qutie right and FP5D
+  #filter(site_yr %!in% c("FP5D_8", "FP5A_8")) %>%
+  group_by(PLOT, Year, area.sampled) %>%
+  summarize(
+   stand_mean_dbh_death = mean(DBH, na.rm= T),stand_se_dbh_death = sd(DBH, na.rm = T)/sqrt(n()), stand_agb_death = sum(above_dbh_biomass),
+   stand_ba_death = sum(BA), 
+   n_trees_death = n()) %>%
+  ungroup() %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0)))%>%
+  mutate(stand_dens_m2_death = n_trees_death/area.sampled, stand_ba_death_m2 = stand_ba_death/area.sampled, stand_agb_death_m2 = stand_agb_death/area.sampled) %>%
+  select(-c(stand_agb_death,stand_ba_death))
+
+
+death.combo <- left_join(death.sp, stand.death) %>%
+  filter(Year < 2020) %>%
+  filter(Network == "RSN")
+glimpse(death.combo)
+
+ggplot(death.combo, aes(PLOT, sp_dens_m2_death, fill = SPECIES)) +
+  geom_col(stat = "identity", position= "stack")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(~Year, scales = "free")
+
+
+# check on disease prevalence
+death.trees.check <- trees.2 %>%
+  left_join(ages) %>%
+  filter(DA == 0 & sample.pd == 3)
+
+damaged <- trees.2 %>%
+  filter(DAMAGED == 1)
+
+```
+
+# Table of age and composition - more granular
+```{r}
+tree.join <- tree.summary %>%
+  select(-c(mean_dbh, se_dbh))
+glimpse(tree.join)
+glimpse(tree.summary.species2)
+
+tree.summary.species2 <- trees.2 %>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
+  left_join(ages) %>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
+  filter(DA!=0) %>%
+  mutate(area.sampled = Plot.Area.M2 * sampled_plots_period, 
+         BA = 0.00007854 * (DBH)^2) %>%
+  filter(SPECIES %!in% c("LARLAR", "POPBAL", "PICEA")) %>%
+  group_by(SPECIES,Year, PLOT, area.sampled) %>%
+  summarize(n = n(), mean_dbh = mean(DBH, na.rm = T), se_dbh = sd(DBH, na.rm = T)/sqrt(n()), 
+            ba = sum(BA, na.rm = T), mean_above_bio = sum(above_dbh_biomass, na.rm = TRUE)) %>%  
+  ungroup() %>%
+  mutate(ba_m2_sp = ba/area.sampled, agb_m2_sp = mean_above_bio/area.sampled, dens_m2_sp = n/area.sampled) %>%
+  left_join(tree.join) %>%
+  mutate(prop_stems = dens_m2_sp/dens, prop_agb = agb_m2_sp/agb_m2, prop_ba = ba_m2_sp/ba_m2, 
+         imp = (prop_stems + prop_agb + prop_ba)/3) %>%
+  filter(imp > 0.2) %>%
+  select(SPECIES, Year, PLOT) %>%
+    group_by(PLOT, Year) %>%
+summarize(n = n(), species_comp = paste(sort(unique(SPECIES), method = "radix"), collapse = "_"),
+          .groups = "drop")
+
+# join with mixed 
+demos2 <- tree.sum4 %>%
+  mutate(across(where(is.numeric), \(x) replace_na(x, 0))) %>%
+  #Calculate relative deciduous density, relative deciduous biomass, and deciduous index
+  mutate(rel_dens_decid = Decid_Broad_dens/dens, 
+         rel_biomass_decid = Decid_Broad_agb_m2/agb_m2, 
+         decid.index.msq = (rel_dens_decid + rel_biomass_decid)/2) %>%
+  #Categorize sites based on their deciduous index value!
+  mutate(canopy= case_when(
+    decid.index.msq > 0.66 ~ "decid",
+    decid.index.msq < 0.33 ~ "spruce",
+    TRUE ~ "mixed"
+  )) %>%
+  select(Network, PLOT, Year, canopy, sample.pd)
+
+age.cat <- age.class %>%
+  select(PLOT, age_class)
+
+canopies <- left_join(tree.summary.species2, demos2) %>%
+  left_join(age.cat)
+
+glimpse(canopies)
+table <- canopies %>%
+  group_by(sample.pd, Network, age_class, canopy, species_comp) %>%
+  dplyr::count()
+  
+  
+  
+```
+
+# Density and AGB
+```{r}
+
+```
+
+# Density adn Demographics
+```{r}
+glimpse(demo.2)
+ggplot(demo.2, aes(dens, tot_dens_rec*1200, color = log(age2)))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+
+ggplot(demo.2, aes(dens, tot_agb_rec_yr, color = log(age2)))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+
+ggplot(demo.2, aes(dens, tot_agb_death_yr , color = log(age2)))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+
+#net
+ggplot(demo.2, aes(dens, d_agb_m2_yr , color = log(age2)))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+  
+ggplot(demo.2, aes(dens, d_agb_m2_yr +  tot_agb_death_yr - tot_agb_rec_yr, color = log(age2)))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+
+ggplot(demo.2, aes(dens, d_agb_m2_yr +  tot_agb_death_yr - tot_agb_rec_yr, color = mean_dbh, shape = Network))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+
+ggplot(demo.2, aes(dens, d_agb_m2_yr, color = mean_dbh, shape = Network))+
+  geom_point()+
+  scale_color_viridis_c()+
+  theme_bw()+
+  facet_wrap(~canopy)
+
+glimpse(demo.2)
+
+
+mixed <- demo.2 %>%
+  filter(canopy == "mixed")
+
+mixed_plus <- demo.2 %>%
+  filter(PLOT %in% mixed$PLOT)
+
+ggplot(mixed_plus, aes(age2, Conifer_dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+ggplot(mixed_plus, aes(age2, Decid_Broad_dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+
+
+ggplot(demo.2, aes(age2, Conifer_dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+ggplot(demo.2, aes(age2, Decid_Broad_dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+
+glimpse(mixed_plus)
+ggplot(mixed_plus, aes(age2, con_agb_rec_yr, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+ggplot(demo.2, aes(age2, con_agb_rec_yr, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+
+ggplot(demo.2, aes(age2, decid_agb_rec_yr, group = PLOT))+
+  geom_point()+
+  theme_bw() +
+  xlim(0, 100)
+
+# with all fo the data
+tree.sum.age <- left_join(tree.sum, ages) %>%
+  mutate(age2 = Year - age)
+ggplot(tree.sum.age, aes(age2, Conifer_dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+ggplot(tree.sum.age, aes(age2, Decid_Broad_dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 100)
+
+ggplot(tree.sum.age, aes(age2, dens, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 250)
+
+glimpse(tree.sum.age)
+ggplot(tree.sum.age, aes(age2, agb_m2, group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 250)
+
+ggplot(tree.sum.age, aes(age2, Conifer_agb_m2 , group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 250)
+
+ggplot(tree.sum.age, aes(age2, Decid_Broad_agb_m2 , group = PLOT, color = as.factor(sample.pd)))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 150)
+```
+
+
+# recruitment vs mortality
+```{r}
+glimpse(demo.2)
+
+ggplot(demo.2, aes(tot_agb_death_yr, tot_agb_rec_yr, color = canopy, shape = Network))+
+  geom_point()+
+  theme_bw() +
+  facet_wrap(~age_class + sample.pd, scales = "free")
+
+
+```
+
+# Deciduous stems over time - proportion and density
+```{r}
+glimpse(demo.2)
+glimpse(tree.sum4)
+
+ggplot(tree.sum4, aes(age2, Decid_Broad_dens, group_by = PLOT))+
+  geom_line()+
+  geom_point(aes(color = as.factor(sample.pd)))+
+  theme_bw()
+
+ggplot(data = subset(tree.sum4, tree.sum4$Network == "RSN"), aes(Decid_Broad_dens,Decid_Broad_agb_m2, group_by = PLOT))+
+  geom_line()+
+  geom_point(aes(color = Decid_Broad_mean_dbh))+
+  theme_bw()
+
+ggplot(tree.sum4, aes(age2, Decid_Broad_mean_dbh, group_by = PLOT))+
+  geom_line()+
+  geom_errorbar(aes(ymin = Decid_Broad_mean_dbh - Decid_Broad_se_dbh, ymax = Decid_Broad_mean_dbh + Decid_Broad_se_dbh))+
+  geom_point(aes(color = as.factor(sample.pd)))+
+  theme_bw()
+
+ggplot(tree.sum4, aes(age2, Decid_Broad_mean_dbh_death, group_by = PLOT))+
+  geom_line()+
+  geom_errorbar(aes(ymin = Decid_Broad_mean_dbh_death - Decid_Broad_se_dbh_death, ymax = Decid_Broad_mean_dbh_death + Decid_Broad_se_dbh_death))+
+  geom_point(aes(color = as.factor(sample.pd)))+
+  theme_bw()
+
+# comparing rec and death
+decid.stems <- demo.2 %>%
+  select(age2, PLOT, Year, sample.pd, Decid_Broad_mean_dbh, Decid_Broad_se_dbh,
+         Decid_Broad_mean_dbh_death, Decid_Broad_se_dbh_death) %>%
+   mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+
+ggplot(decid.stems, aes(Decid_Broad_mean_dbh, Decid_Broad_mean_dbh_death)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Decid_Broad_mean_dbh_death - Decid_Broad_se_dbh_death,
+                    ymax = Decid_Broad_mean_dbh_death + Decid_Broad_se_dbh_death)) +
+  geom_errorbar(aes(xmin = Decid_Broad_mean_dbh - Decid_Broad_se_dbh,
+                    xmax = Decid_Broad_mean_dbh + Decid_Broad_se_dbh),
+                orientation = "y") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  coord_equal() +
+  theme_bw()
+
+```
+
+# mortality and size relative to stand
+```{r}
+glimpse(demo.2)
+
+ggplot(demo.2, aes(Conifer_mean_dbh, Conifer_mean_dbh_death)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Conifer_mean_dbh_death - Conifer_se_dbh_death,
+                    ymax = Conifer_mean_dbh_death + Conifer_se_dbh_death)) +
+  geom_errorbar(aes(xmin = Conifer_mean_dbh - Conifer_se_dbh,
+                    xmax = Conifer_mean_dbh + Conifer_se_dbh),
+                orientation = "y") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  coord_equal() +
+  theme_bw()
+
+```
+
+# stand level pest and pathogen presence
+```{r}
+glimpse(trees.2)
+
+rsn.damage <- trees.2 %>%
+  filter(Network == "RSN") %>%
+  mutate(max_dam = pmax(DAMSEV1, DAMSEV2, DAMSEV3, na.rm = T)) %>%
+  filter(max_dam > 0) %>%
+  select(UniqueID, Year, PLOT, SPECIES, DAMAGE_1, DAMAGE_2, DAMAGE_3, DAMSEV1, DAMSEV2, DAMSEV3)%>%
+    pivot_longer(c(DAMAGE_1:DAMAGE_3, DAMSEV1:DAMSEV3),
+               names_to = c(".value", "dam_num"),
+               names_pattern = "(DAMAGE|DAMSEV)_?(\\d)") %>%
+  filter(!is.na(DAMAGE) | !is.na(DAMSEV)) %>%
+  filter(DAMAGE != "Girdled") %>%
+  group_by(Year, PLOT, SPECIES, DAMAGE) %>%
+  summarize(n = n(), ave_sev = mean(DAMSEV, na.rm = T))
+
+rsn.damage2 <- trees.2 %>%
+  filter(Network == "RSN") %>%
+  mutate(max_dam = pmax(DAMSEV1, DAMSEV2, DAMSEV3, na.rm = T)) %>%
+  filter(max_dam > 0) %>%
+  select(UniqueID, Year, PLOT, SPECIES, DAMAGE_1, DAMAGE_2, DAMAGE_3, DAMSEV1, DAMSEV2, DAMSEV3)%>%
+    pivot_longer(c(DAMAGE_1:DAMAGE_3, DAMSEV1:DAMSEV3),
+               names_to = c(".value", "dam_num"),
+               names_pattern = "(DAMAGE|DAMSEV)_?(\\d)") %>%
+  filter(!is.na(DAMAGE) | !is.na(DAMSEV)) %>%
+  filter(DAMAGE != "Girdled") %>%
+  group_by(Year, PLOT, SPECIES) %>%
+  summarize(n = n(), ave_sev = mean(DAMSEV, na.rm = T)) %>%
+  mutate(presence = ifelse(n>5, "abundant", "present"))
+
+unique(rsn.damage$DAMAGE)
+unique(rsn.damage$PLOT)
+```
+
+
+# To do: 
+- WCM2 - sampled in 2025 or 2026, need to classify - and will need to make sure the driver file creation accurately reflects this too!
 - what old stands are recruiting deciduous
 - comparison of growth/mortality/death based on all tree area vs. tree level 
+- issue with merging_CAFI_RSN - bowed tree is giving a bunch more damage to the trees than expected
+- want to look at time since fire and density of decid, conifer, nad overall - idea that maybe seeing a decline in decid and inc in con 
+- for recruitment and young sites that dont' have trees in some of the first efforts, their samplign could be an issue
