@@ -15,8 +15,8 @@ glimpse(month)
 
 month.2 <- month %>%
   mutate(gs_ppt = PPT05 + PPT06 +PPT07 + PPT08, july_ppt = Tave07,  gs_temp = Tave05 + Tave06 + Tave07 + Tave08, 
-         july_temp = Tave07) %>%
-  select(Year, ID1, gs_ppt, july_ppt, gs_temp, july_temp)
+         july_maxtemp = Tmax07) %>%
+  select(Year, ID1, gs_ppt, july_ppt, gs_temp, july_maxtemp)
 
 # annual and seasonal
 ann <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/climate_raw/lat_long_1990-2025SY.csv") 
@@ -139,6 +139,6 @@ clim.2 <- clim %>%
   left_join(annual.vars)
 
 # export climate data
-#write.csv(clim.2, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/harmonized_climateNA.csv", row.names = F)
+write.csv(clim.2, "/Users/olhajek/Desktop/RSN/RSN_proj/Data/harmonized/harmonized_climateNA.csv", row.names = F)
 
 
