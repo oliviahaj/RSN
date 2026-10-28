@@ -14,8 +14,9 @@ month <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/climate_raw/lat_long
 glimpse(month)
 
 month.2 <- month %>%
-  mutate(gs_ppt = PPT05 + PPT06 +PPT07 + PPT08, july_ppt = Tave07,  gs_temp = Tave05 + Tave06 + Tave07 + Tave08) %>%
-  select(Year, ID1, gs_ppt, july_ppt, gs_temp)
+  mutate(gs_ppt = PPT05 + PPT06 +PPT07 + PPT08, july_ppt = Tave07,  gs_temp = Tave05 + Tave06 + Tave07 + Tave08, 
+         july_temp = Tave07) %>%
+  select(Year, ID1, gs_ppt, july_ppt, gs_temp, july_temp)
 
 # annual and seasonal
 ann <- read.csv("/Users/olhajek/Desktop/RSN/RSN_proj/Data/climate_raw/lat_long_1990-2025SY.csv") 
