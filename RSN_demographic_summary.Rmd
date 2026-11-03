@@ -1185,11 +1185,25 @@ ggplot(tree.sum.age, aes(age2, agb_m2, group = PLOT, color = as.factor(sample.pd
   theme_bw() +
   xlim(0, 250)
 
+ggplot(tree.sum.age, aes(age2, agb_m2, group = PLOT, color = Decid_Broad_agb_m2/agb_m2))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 250)
+
+ggplot(tree.sum.age, aes(age2, agb_m2, group = PLOT, color = Decid_Broad_dens/dens))+
+  geom_point()+
+  geom_line()+
+  theme_bw() +
+  xlim(0, 250)
+
+
 ggplot(tree.sum.age, aes(age2, Conifer_agb_m2 , group = PLOT, color = as.factor(sample.pd)))+
   geom_point()+
   geom_line()+
   theme_bw() +
   xlim(0, 250)
+
 
 ggplot(tree.sum.age, aes(age2, Decid_Broad_agb_m2 , group = PLOT, color = as.factor(sample.pd)))+
   geom_point()+
@@ -1307,6 +1321,42 @@ rsn.damage2 <- trees.2 %>%
 
 unique(rsn.damage$DAMAGE)
 unique(rsn.damage$PLOT)
+
+rsn.damage3 <- rsn.damage2 %>%
+  ungroup()%>%
+  select(-Year)
+
+dead.dam <- left_join(death.sp, rsn.damage3) %>%
+  mutate(presence = ifelse(is.na(presence), "absent", presence))
+
+glimpse(dead.dam)
+ggplot(dead.dam, aes(presence, sp_dens_m2_death))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(~SPECIES)
+```
+
+# start modeling mortality
+# relationship between size and age...how confounded are they
+```{r}
+glimpse(demo.2)
+ggplot(data = demo.2, aes(age2, Decid_Broad_mean_dbh))+
+  geom_point()+
+  theme_bw()
+
+ggplot(data = subset(demo.2, demo.2$Network == "RSN"), aes(age2, Decid_Broad_mean_dbh))+
+  geom_point()+
+  theme_bw()
+
+ggplot(data = demo.2, aes(age2, Conifer_mean_dbh))+
+  geom_point()+
+  theme_bw()
+
+ggplot(data = subset(demo.2, demo.2$Network == "RSN"), aes(age2, Conifer_mean_dbh))+
+  geom_point()+
+  theme_bw()
+
+demo.con <- 
 ```
 
 
