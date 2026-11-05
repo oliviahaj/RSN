@@ -1011,7 +1011,6 @@ damaged <- trees.2 %>%
 tree.join <- tree.summary %>%
   select(-c(mean_dbh, se_dbh))
 glimpse(tree.join)
-glimpse(tree.summary.species2)
 
 tree.summary.species2 <- trees.2 %>%
   mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
@@ -1029,7 +1028,7 @@ tree.summary.species2 <- trees.2 %>%
   left_join(tree.join) %>%
   mutate(prop_stems = dens_m2_sp/dens, prop_agb = agb_m2_sp/agb_m2, prop_ba = ba_m2_sp/ba_m2, 
          imp = (prop_stems + prop_agb + prop_ba)/3) %>%
-  filter(imp > 0.2) %>%
+  filter(imp > 0.3) %>%
   select(SPECIES, Year, PLOT) %>%
     group_by(PLOT, Year) %>%
 summarize(n = n(), species_comp = paste(sort(unique(SPECIES), method = "radix"), collapse = "_"),
@@ -1061,9 +1060,10 @@ table <- canopies %>%
   group_by(sample.pd, Network, age_class, canopy, species_comp) %>%
   dplyr::count()
   
-  
+table
   
 ```
+
 
 # Density and AGB
 ```{r}
@@ -1357,6 +1357,64 @@ ggplot(data = subset(demo.2, demo.2$Network == "RSN"), aes(age2, Conifer_mean_db
   theme_bw()
 
 demo.con <- 
+```
+
+
+# looking at composition and site features
+```{r}
+glimpse(canopies)
+
+drivers <- read.csv('/Users/olhajek/Desktop/RSN/RSN_proj/Data/2026 Data/RSN_Site/RSN_Climate_Site_characteristcs.csv') 
+
+d3 <- drivers %>%
+  filter(sample.pd == 3)
+
+c2 <- canopies %>%
+  select(c(PLOT, age_class, species_comp, Network)) %>%
+  ungroup()%>%
+  distinct() %>%
+  left_join(d3) %>%
+  filter(Network == "RSN")
+  
+glimpse(c2)
+
+ggplot(c2, aes(topo_moist_PC1, cold_PC2, color = species_comp))+
+  geom_point(size = 2.5)+
+  theme_bw()
+
+
+```
+
+# mixture vs monoculture
+```{r}
+tree.summary.species2 <- trees.2 %>%
+  mutate(above_dbh_biomass = allom.dbh(SPECIES, DBH)) %>%
+  left_join(ages) %>%
+  mutate(func_gp = ifelse(SPECIES %in% decid, "Decid_Broad", "Conifer")) %>%
+  filter(DA!=0) %>%
+  mutate(area.sampled = Plot.Area.M2 * sampled_plots_period, 
+         BA = 0.00007854 * (DBH)^2) %>%
+  group_by(SPECIES,Year, PLOT, area.sampled) %>%
+  summarize(n = n(), mean_dbh = mean(DBH, na.rm = T), se_dbh = sd(DBH, na.rm = T)/sqrt(n()), 
+            ba = sum(BA, na.rm = T), mean_above_bio = sum(above_dbh_biomass, na.rm = TRUE)) %>%  
+  ungroup() %>%
+  mutate(ba_m2_sp = ba/area.sampled, agb_m2_sp = mean_above_bio/area.sampled, dens_m2_sp = n/area.sampled) %>%
+  left_join(tree.join) %>%
+  mutate(prop_stems = dens_m2_sp/dens, prop_agb = agb_m2_sp/agb_m2, prop_ba = ba_m2_sp/ba_m2, 
+         imp = (prop_stems + prop_agb + prop_ba)/3, ba_prop = ba_m2_sp/ba_m2) %>%
+  filter(ba_prop > 0.8) %>%
+  filter(n>10) %>%
+  select(SPECIES, PLOT)%>%
+  distinct() %>%
+  rename(dominant_sp = SPECIES) 
+
+
+
+age.cat <- age.class %>%
+  select(PLOT, age_class)
+
+canopies <- left_join(tree.summary.species2, demos2) %>%
+  left_join(age.cat)
 ```
 
 
